@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, Users, PlusCircle, ListOrdered, Trophy, Settings, AlertTriangle } from '@lucide/vue'
+import { LayoutDashboard, Users, PlusCircle, ListOrdered, Settings, AlertTriangle } from '@lucide/vue'
 import { initScheduler } from '@/services/scheduler'
 import { useSettingsStore } from '@/stores/settings'
 
@@ -27,11 +27,9 @@ onMounted(() => { initScheduler() })
 
       <!-- Logo -->
       <div class="flex items-center gap-3 px-6 py-6">
-        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-green-900/40">
-          <Trophy class="w-5 h-5 text-white" />
-        </div>
+        <img src="/logo.png" alt="Padel Maatjes" class="w-10 h-10 rounded-full object-cover bg-white" />
         <div>
-          <p class="font-bold text-white text-sm leading-tight tracking-wide">Padel Booker</p>
+          <p class="font-bold text-white text-sm leading-tight tracking-wide">Padel Maatjes</p>
           <p class="text-xs text-slate-400 leading-tight">Ready Maastricht</p>
         </div>
       </div>
@@ -82,10 +80,8 @@ onMounted(() => { initScheduler() })
 
       <!-- Mobile header -->
       <header class="lg:hidden bg-slate-900 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
-        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center">
-          <Trophy class="w-4 h-4 text-white" />
-        </div>
-        <p class="font-bold text-white">Padel Booker</p>
+        <img src="/logo.png" alt="Padel Maatjes" class="w-8 h-8 rounded-full object-cover bg-white" />
+        <p class="font-bold text-white">Padel Maatjes</p>
         <div v-if="!settingsStore.isConfigured" class="ml-auto flex items-center gap-1.5">
           <AlertTriangle class="w-4 h-4 text-amber-400" />
         </div>

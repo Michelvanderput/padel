@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { Trophy, Lock, Eye, EyeOff } from '@lucide/vue'
+import { Lock, Eye, EyeOff } from '@lucide/vue'
 import { useSettingsStore } from '@/stores/settings'
 
 const emit = defineEmits(['unlocked'])
@@ -37,10 +37,8 @@ function attempt() {
     >
       <!-- Logo -->
       <div class="flex flex-col items-center mb-10">
-        <div class="w-16 h-16 rounded-3xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center shadow-2xl shadow-green-500/30 mb-4">
-          <Trophy class="w-8 h-8 text-white" />
-        </div>
-        <h1 class="text-2xl font-bold text-white">Padel Booker</h1>
+        <img src="/logo.png" alt="Padel Maatjes" class="w-20 h-20 rounded-full object-cover bg-white shadow-2xl mb-4" />
+        <h1 class="text-2xl font-bold text-white">Padel Maatjes</h1>
         <p class="text-slate-400 text-sm mt-1">Ready Maastricht</p>
       </div>
 

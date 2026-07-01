@@ -43,6 +43,13 @@ function formatDate(str) {
 function formatTrigger(iso) {
   return new Date(iso).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
+
+const photos = [
+  { src: '/photos/padel (1).png', alt: 'Padel actie bij het net' },
+  { src: '/photos/padel (2).png', alt: 'Smash boven het net' },
+  { src: '/photos/padel (3).png', alt: 'Kampioenen met beker' },
+  { src: '/photos/padel (4).png', alt: 'Vier spelers in actie' },
+]
 </script>
 
 <template>
@@ -53,7 +60,7 @@ function formatTrigger(iso) {
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-green-500/20 via-transparent to-transparent"></div>
       <div class="relative">
         <p class="text-green-400 text-xs font-semibold uppercase tracking-widest mb-2">Ready Maastricht</p>
-        <h1 class="text-2xl lg:text-3xl font-bold text-white mb-1">Padel Booker</h1>
+        <h1 class="text-2xl lg:text-3xl font-bold text-white mb-1">Padel Maatjes</h1>
         <p class="text-slate-400 text-sm mb-6">Automatisch reserveren zodra de baan beschikbaar komt</p>
         <div class="flex flex-wrap gap-3">
           <RouterLink
@@ -111,6 +118,23 @@ function formatTrigger(iso) {
           </div>
         </div>
         <p class="text-3xl font-bold text-slate-900">{{ stats.members }}</p>
+      </div>
+    </div>
+
+    <!-- Photo gallery -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div
+        v-for="(photo, i) in photos"
+        :key="i"
+        class="relative overflow-hidden rounded-2xl aspect-square group cursor-pointer"
+        :class="i === 2 ? 'col-span-2 lg:col-span-1' : ''"
+      >
+        <img
+          :src="photo.src"
+          :alt="photo.alt"
+          class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+        />
+        <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
       </div>
     </div>
 
