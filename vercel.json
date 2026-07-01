@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/knltb/:path*", "destination": "https://api.knltb.club/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
