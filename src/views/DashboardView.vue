@@ -47,7 +47,7 @@ function formatTrigger(iso) {
 const photos = [
   { src: '/photos/padel (1).png', alt: 'Padel actie bij het net' },
   { src: '/photos/padel (2).png', alt: 'Smash boven het net' },
-  { src: '/photos/padel (3).png', alt: 'Kampioenen met beker' },
+  { src: '/photos/padel (5).png', alt: 'Kampioenen met beker' },
   { src: '/photos/padel (4).png', alt: 'Vier spelers in actie' },
 ]
 </script>
