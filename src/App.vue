@@ -12,8 +12,8 @@ const navLinks = [
   { to: '/',             label: 'Dashboard',          shortLabel: 'Home',     icon: LayoutDashboard },
   { to: '/leden',        label: 'Leden',              shortLabel: 'Leden',    icon: Users },
   { to: '/nieuw',        label: 'Nieuwe reservering', shortLabel: 'Nieuw',    icon: PlusCircle },
-  { to: '/wachtrij',     label: 'Wachtrij',           shortLabel: 'Wachtrij', icon: ListOrdered },
-  { to: '/instellingen', label: 'Instellingen',       shortLabel: 'Config',   icon: Settings },
+  { to: '/wachtrij',     label: 'Wachtrij',      shortLabel: 'Wachtrij', icon: ListOrdered },
+  { to: '/instellingen', label: 'Instellingen',  shortLabel: 'Config',   icon: Settings },
 ]
 
 onMounted(() => { initScheduler() })

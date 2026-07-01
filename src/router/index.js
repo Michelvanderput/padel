@@ -23,6 +23,11 @@ const routes = [
     component: () => import('../views/QueueView.vue')
   },
   {
+    path: '/beschikbaarheid',
+    name: 'beschikbaarheid',
+    component: () => import('../views/AvailabilityView.vue')
+  },
+  {
     path: '/instellingen',
     name: 'instellingen',
     component: () => import('../views/SettingsView.vue')
