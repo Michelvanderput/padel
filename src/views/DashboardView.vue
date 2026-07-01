@@ -58,26 +58,33 @@ const photos = [
     <!-- Hero banner -->
     <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-900 p-6 lg:p-8">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-green-500/20 via-transparent to-transparent"></div>
-      <div class="relative">
-        <p class="text-green-400 text-xs font-semibold uppercase tracking-widest mb-2">Ready Maastricht</p>
-        <h1 class="text-2xl lg:text-3xl font-bold text-white mb-1">Padel Maatjes</h1>
-        <p class="text-slate-400 text-sm mb-6">Automatisch reserveren zodra de baan beschikbaar komt</p>
-        <div class="flex flex-wrap gap-3">
-          <RouterLink
-            to="/nieuw"
-            class="inline-flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-green-500/25"
-          >
-            <Plus class="w-4 h-4" />
-            Nieuwe reservering
-          </RouterLink>
-          <RouterLink
-            to="/wachtrij"
-            class="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all backdrop-blur-sm border border-white/10"
-          >
-            <Target class="w-4 h-4" />
-            Bekijk wachtrij
-          </RouterLink>
+      <div class="relative flex items-center justify-between gap-6">
+        <div class="flex-1 min-w-0">
+          <p class="text-green-400 text-xs font-semibold uppercase tracking-widest mb-2">Ready Maastricht</p>
+          <h1 class="text-2xl lg:text-3xl font-bold text-white mb-1">Padel Maatjes</h1>
+          <p class="text-slate-400 text-sm mb-6">Automatisch reserveren zodra de baan beschikbaar komt</p>
+          <div class="flex flex-wrap gap-3">
+            <RouterLink
+              to="/nieuw"
+              class="inline-flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-green-500/25"
+            >
+              <Plus class="w-4 h-4" />
+              Nieuwe reservering
+            </RouterLink>
+            <RouterLink
+              to="/wachtrij"
+              class="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all backdrop-blur-sm border border-white/10"
+            >
+              <Target class="w-4 h-4" />
+              Bekijk wachtrij
+            </RouterLink>
+          </div>
         </div>
+        <img
+          src="/logo.png"
+          alt="Padel Maatjes"
+          class="hidden sm:block w-28 h-28 lg:w-36 lg:h-36 rounded-full object-cover flex-shrink-0 shadow-2xl ring-4 ring-white/10"
+        />
       </div>
     </div>
 

@@ -26,9 +26,9 @@ onMounted(() => { initScheduler() })
     <aside class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-slate-900 z-20">
 
       <!-- Logo -->
-      <div class="flex items-center gap-3 px-6 py-6">
-        <img src="/logo.png" alt="Padel Maatjes" class="w-10 h-10 rounded-full object-cover bg-white" />
-        <div>
+      <div class="flex flex-col items-center px-6 py-6 gap-3">
+        <img src="/logo.png" alt="Padel Maatjes" class="w-20 h-20 rounded-full object-cover bg-white shadow-lg ring-2 ring-white/10" />
+        <div class="text-center">
           <p class="font-bold text-white text-sm leading-tight tracking-wide">Padel Maatjes</p>
           <p class="text-xs text-slate-400 leading-tight">Ready Maastricht</p>
         </div>
