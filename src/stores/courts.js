@@ -30,10 +30,21 @@ export const useCourtsStore = defineStore('courts', () => {
       }
       const data = res.data
       const list = data?.courts ?? data?.data ?? (Array.isArray(data) ? data : [])
-      if (list.length > 0) {
-        courts.value = list.map(normalize).filter(c => c.id)
-        loadedFromApi.value = true
+      const apiCourts = list.map(normalize).filter(c => c.id)
+
+      // Nooit banen laten verdwijnen t.o.v. de bekende (werkende) lijst —
+      // de API wordt alleen gebruikt om bestaande banen te verrijken en
+      // écht nieuwe banen toe te voegen, nooit om te vervangen.
+      const merged = STATIC_COURTS.map(staticCourt => {
+        const match = apiCourts.find(c => c.id === staticCourt.id)
+        return match ? { ...staticCourt, ...match } : staticCourt
+      })
+      for (const apiCourt of apiCourts) {
+        if (!merged.some(c => c.id === apiCourt.id)) merged.push(apiCourt)
       }
+
+      courts.value = merged
+      loadedFromApi.value = apiCourts.length > 0
     } catch (e) {
       error.value = e.message
     }
