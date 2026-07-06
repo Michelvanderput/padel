@@ -53,6 +53,24 @@ const liveReservations = ref([])
 const liveLoading = ref(false)
 const liveError = ref(null)
 
+// Haal de starttijd uit een reservering-object — de exacte veldnaam is niet
+// bevestigd met een echte response, dus we proberen meerdere varianten
+// (ook genest onder court_booking / slot, gezien velden als
+// show_details_in_courtbooking die op zo'n structuur wijzen).
+function getStartAt(r) {
+  return r.start_at ?? r.start_time ?? r.starts_at ?? r.startAt
+    ?? r.court_booking?.start_at ?? r.court_booking?.start_time
+    ?? r.slot?.start_at ?? r.slot?.start_time
+    ?? null
+}
+
+function getEndAt(r) {
+  return r.end_at ?? r.end_time ?? r.ends_at ?? r.endAt
+    ?? r.court_booking?.end_at ?? r.court_booking?.end_time
+    ?? r.slot?.end_at ?? r.slot?.end_time
+    ?? null
+}
+
 async function fetchLiveReservations() {
   if (!settings.isConfigured) return
   liveLoading.value = true
@@ -62,23 +80,37 @@ async function fetchLiveReservations() {
     if (!res.ok) { liveError.value = `API fout ${res.status}`; return }
     const data = res.data
     const list = data?.reservations ?? data?.data ?? (Array.isArray(data) ? data : [])
-    liveReservations.value = list
-      .filter(r => r.start_at && new Date(r.start_at) >= new Date())
-      .sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
+
+    const withStart = list.filter(r => getStartAt(r))
+    if (list.length > 0 && withStart.length === 0) {
+      console.warn('[Dashboard] Reserveringen ontvangen maar starttijd-veld niet herkend. Voorbeeld item:', list[0])
+      liveError.value = `${list.length} reservering(en) ontvangen maar veldnamen niet herkend — check console/API-log.`
+    }
+
+    liveReservations.value = withStart
+      .filter(r => new Date(getStartAt(r)) >= new Date())
+      .sort((a, b) => new Date(getStartAt(a)) - new Date(getStartAt(b)))
   } catch (e) { liveError.value = e.message }
   finally { liveLoading.value = false }
 }
 
-function formatLiveDate(iso) {
-  return new Date(iso).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })
+function formatLiveDate(r) {
+  return new Date(getStartAt(r)).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-function formatLiveTime(iso) {
-  return new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+function formatLiveTime(r) {
+  return new Date(getStartAt(r)).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatLiveEndTime(r) {
+  const end = getEndAt(r)
+  return end ? new Date(end).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }) : '?'
 }
 
 function getCourtNameFromRes(r) {
-  return r.court?.name ?? r.court_name ?? courtsStore.courts.find(c => c.id === r.court_id)?.name ?? 'Onbekende baan'
+  return r.court?.name ?? r.court_name ?? r.court_booking?.court?.name
+    ?? courtsStore.courts.find(c => c.id === (r.court_id ?? r.court_booking?.court_id))?.name
+    ?? 'Onbekende baan'
 }
 
 function getParticipantNames(r) {
@@ -232,7 +264,7 @@ const photos = [
           </div>
           <div class="flex-1 min-w-0">
             <p class="font-semibold text-slate-900 text-sm truncate">{{ getCourtNameFromRes(r) }}</p>
-            <p class="text-sm text-slate-500">{{ formatLiveDate(r.start_at) }} · {{ formatLiveTime(r.start_at) }} – {{ formatLiveTime(r.end_at) }}</p>
+            <p class="text-sm text-slate-500">{{ formatLiveDate(r) }} · {{ formatLiveTime(r) }} – {{ formatLiveEndTime(r) }}</p>
             <p v-if="getParticipantNames(r)" class="text-xs text-slate-400 mt-0.5">{{ getParticipantNames(r) }}</p>
           </div>
           <span class="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex-shrink-0">geboekt</span>
