@@ -130,15 +130,33 @@ function getParticipantNames(r) {
 
 // Dit endpoint geeft ALLE reserveringen van de hele club terug (zie
 // getReservations in services/knltb.js — geen lid-filter in de URL).
-// We filteren hier client-side op onze eigen groep leden, zodat alleen
-// "onze" reserveringen op het dashboard verschijnen.
+// We filteren hier client-side op onze eigen groep leden (Sander, Eddie,
+// Lerau, Michel), zodat alleen "onze" reserveringen op het dashboard
+// verschijnen. Matching gebeurt zowel op UUID als op naam, omdat de
+// participant-ID's in dit endpoint niet gegarandeerd hetzelfde formaat
+// hebben als clubMemberId elders in de app.
 function isOwnReservation(r) {
-  const participantIds = getParticipants(r)
-    .map(m => m.id ?? m.club_member_id ?? m.uuid)
-    .filter(Boolean)
-  if (participantIds.length === 0) return null // onbekend — kunnen we niet checken
-  const ourIds = membersStore.members.map(m => m.clubMemberId).filter(Boolean)
-  return participantIds.some(id => ourIds.includes(id))
+  const participants = getParticipants(r)
+  if (participants.length === 0) return null // structuur onbekend — kunnen we niet checken
+
+  const ourIds   = membersStore.members.map(m => m.clubMemberId).filter(Boolean)
+  const ourNames = membersStore.members.map(m => m.name.toLowerCase().trim())
+
+  const matchById = participants.some(p => {
+    const id = p.id ?? p.club_member_id ?? p.uuid ?? p.member_id
+    return id && ourIds.includes(id)
+  })
+  if (matchById) return true
+
+  const matchByName = participants.some(p => {
+    const name = (p.full_name ?? p.name ?? '').toLowerCase().trim()
+    if (!name) return false
+    return ourNames.some(our => our === name || name.includes(our.split(' ')[0]) || our.includes(name.split(' ')[0]))
+  })
+  if (matchByName) return true
+
+  console.warn('[Dashboard] Reservering matcht geen van onze leden — participants:', participants)
+  return false
 }
 
 onMounted(fetchLiveReservations)
