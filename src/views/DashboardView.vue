@@ -56,9 +56,10 @@ const showAllClub = ref(false)     // false = alleen "onze" reserveringen tonen
 
 const displayedReservations = computed(() => {
   if (showAllClub.value) return liveReservations.value
-  const filtered = liveReservations.value.filter(r => isOwnReservation(r) !== false)
-  return filtered
+  return liveReservations.value.filter(r => isOwnReservation(r) === true)
 })
+
+const showDebug = ref(false)
 
 // Haal de starttijd uit een reservering-object — de exacte veldnaam is niet
 // bevestigd met een echte response, dus we proberen meerdere varianten
@@ -321,6 +322,14 @@ const photos = [
           </div>
           <span class="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex-shrink-0">geboekt</span>
         </div>
+      </div>
+
+      <!-- Debug toggle -->
+      <div v-if="liveReservations.length > 0" class="px-5 py-2.5 border-t border-slate-50">
+        <button @click="showDebug = !showDebug" class="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+          {{ showDebug ? '▾ Verberg ruwe data' : '▸ Toon ruwe data (debug)' }}
+        </button>
+        <pre v-if="showDebug" class="mt-2 p-3 bg-slate-950 text-slate-300 rounded-lg text-[10px] overflow-x-auto max-h-80 overflow-y-auto">{{ JSON.stringify(liveReservations[0], null, 2) }}</pre>
       </div>
     </div>
 
