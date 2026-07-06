@@ -1,9 +1,12 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { Plus, User, Users, Trash2, Pencil, Check, X, Search } from '@lucide/vue'
+import { Plus, User, Users, Trash2, Pencil, Check, X, Search, Loader2, AlertCircle } from '@lucide/vue'
 import { useMembersStore } from '@/stores/members'
+import { useSettingsStore } from '@/stores/settings'
+import { searchMembers } from '@/services/knltb'
 
-const store = useMembersStore()
+const store    = useMembersStore()
+const settings = useSettingsStore()
 
 const showAddForm = ref(false)
 const newName     = ref('')
@@ -15,6 +18,41 @@ const editingId   = ref(null)
 const editName    = ref('')
 const editNumber  = ref('')
 const editUuid    = ref('')
+
+// ── KNLTB ledenzoeker ────────────────────────────────────────
+const knltbQuery   = ref('')
+const knltbLoading = ref(false)
+const knltbError   = ref(null)
+const knltbResults = ref([])
+let knltbDebounce = null
+
+function onKnltbInput() {
+  clearTimeout(knltbDebounce)
+  knltbError.value = null
+  if (knltbQuery.value.trim().length < 2) { knltbResults.value = []; return }
+  knltbDebounce = setTimeout(runKnltbSearch, 350)
+}
+
+async function runKnltbSearch() {
+  if (!settings.isConfigured) { knltbError.value = 'Stel eerst een token in via Instellingen.'; return }
+  knltbLoading.value = true
+  knltbError.value = null
+  try {
+    const res = await searchMembers(settings.clubId, knltbQuery.value.trim(), settings.lisaToken)
+    if (!res.ok) { knltbError.value = `API fout ${res.status}`; knltbResults.value = []; return }
+    const data = res.data
+    knltbResults.value = data?.members ?? data?.data ?? (Array.isArray(data) ? data : [])
+  } catch (e) { knltbError.value = e.message }
+  finally { knltbLoading.value = false }
+}
+
+function pickKnltbResult(m) {
+  newName.value   = m.full_name ?? [m.first_name, m.last_name].filter(Boolean).join(' ') ?? ''
+  newNumber.value = m.member_number ?? m.knltb_number ?? ''
+  newUuid.value   = m.id ?? m.club_member_id ?? ''
+  knltbQuery.value   = ''
+  knltbResults.value = []
+}
 
 const filteredMembers = computed(() =>
   store.members.filter(m =>
@@ -93,6 +131,42 @@ function deleteMember(id) {
     >
       <div v-if="showAddForm" class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
         <h3 class="font-semibold text-gray-900 mb-4">Nieuw lid toevoegen</h3>
+
+        <!-- KNLTB ledenzoeker -->
+        <div class="mb-5 pb-5 border-b border-slate-100">
+          <label class="block text-xs font-medium text-slate-700 mb-1.5">
+            Zoek in KNLTB ledenbestand <span class="text-slate-400 font-normal">(vult automatisch naam, lidnummer & UUID in)</span>
+          </label>
+          <div class="relative">
+            <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              v-model="knltbQuery"
+              @input="onKnltbInput"
+              type="text"
+              placeholder="Typ een naam..."
+              class="w-full pl-9 pr-9 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
+            />
+            <Loader2 v-if="knltbLoading" class="w-4 h-4 text-slate-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
+          </div>
+
+          <div v-if="knltbError" class="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+            <AlertCircle class="w-3.5 h-3.5 flex-shrink-0" />{{ knltbError }}
+          </div>
+
+          <div v-if="knltbResults.length > 0" class="mt-2 border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-56 overflow-y-auto">
+            <button
+              v-for="m in knltbResults"
+              :key="m.id ?? m.club_member_id"
+              @click="pickKnltbResult(m)"
+              type="button"
+              class="w-full text-left px-3 py-2 hover:bg-green-50 transition-colors flex items-center justify-between gap-2"
+            >
+              <span class="text-sm font-medium text-slate-800">{{ m.full_name ?? [m.first_name, m.last_name].filter(Boolean).join(' ') }}</span>
+              <span class="text-xs text-slate-400 font-mono">{{ m.member_number ?? m.knltb_number }}</span>
+            </button>
+          </div>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label class="block text-xs font-medium text-gray-700 mb-1.5">Naam</label>

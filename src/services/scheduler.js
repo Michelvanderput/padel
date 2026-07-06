@@ -1,7 +1,7 @@
 import { useReservationsStore } from '@/stores/reservations'
 import { useSettingsStore } from '@/stores/settings'
 import { useMembersStore } from '@/stores/members'
-import { createReservation } from './knltb'
+import { createReservation, validateReservation, getBookingProducts } from './knltb'
 
 const timers = {}
 const polls  = {}
@@ -76,6 +76,30 @@ async function startPolling(id) {
   reservationsStore.updateStatus(id, 'active')
   reservationsStore.addLog(id, '🚀 Boektijdstip bereikt — start boekpogingen...')
 
+  // Eenmalige diagnostische pre-checks — helpen om fouten sneller te lokaliseren
+  // zonder de eigenlijke boekpogingen te vertragen of te blokkeren.
+  const clubMemberIdsPre = res.memberIds
+    .map(mid => membersStore.members.find(m => m.id === mid)?.clubMemberId)
+    .filter(Boolean)
+
+  if (clubMemberIdsPre.length === 4) {
+    try {
+      const validation = await validateReservation(settingsStore.clubId, {
+        date: res.date, timeSlot: res.timeSlot, courtId: res.courtId, clubMemberIds: clubMemberIdsPre
+      }, settingsStore.lisaToken)
+      reservationsStore.addLog(id, `🔍 Validatie: HTTP ${validation.status} — ${JSON.stringify(validation.data)?.slice(0, 300) ?? 'geen data'}`)
+    } catch (e) {
+      reservationsStore.addLog(id, `🔍 Validatie mislukt (netwerkfout): ${e.message}`)
+    }
+
+    try {
+      const products = await getBookingProducts(settingsStore.clubId, settingsStore.lisaToken)
+      reservationsStore.addLog(id, `📦 Boekingsproducten: HTTP ${products.status} — ${JSON.stringify(products.data)?.slice(0, 300) ?? 'geen data'}`)
+    } catch (e) {
+      reservationsStore.addLog(id, `📦 Boekingsproducten ophalen mislukt: ${e.message}`)
+    }
+  }
+
   let attempt = 0
 
   polls[id] = setInterval(async () => {
@@ -117,7 +141,7 @@ async function startPolling(id) {
           reservationsStore.addLog(id, `  Reservering ID: ${result.data.id}`)
         }
       } else {
-        const msg = result.data?.message ?? result.data?.error ?? 'geen details'
+        const msg = result.data?.message ?? result.data?.error ?? JSON.stringify(result.data)?.slice(0, 200) ?? 'geen details'
         reservationsStore.addLog(id, `→ Poging ${attempt}: HTTP ${result.status} — ${msg}`)
       }
     } catch (err) {

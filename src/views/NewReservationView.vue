@@ -7,20 +7,22 @@ import { useMembersStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
 import { scheduleReservation } from '@/services/scheduler'
 import { getAvailability } from '@/services/knltb'
-import { COURTS, LOCATION } from '@/constants/courts'
+import { useCourtsStore } from '@/stores/courts'
+import { LOCATION } from '@/constants/courts'
 
 const router   = useRouter()
 const route    = useRoute()
 const reservationsStore = useReservationsStore()
 const membersStore      = useMembersStore()
 const settings          = useSettingsStore()
+const courtsStore       = useCourtsStore()
 
 // ── Form ─────────────────────────────────────────────────────
 const form = ref({
   date:     route.query.date  || '',
   timeSlot: route.query.time  || '',
   duration: 60,
-  courtId:  route.query.court || COURTS[0].id,
+  courtId:  route.query.court || courtsStore.courts[0]?.id || '',
 })
 
 const selectedMemberIds = ref([])
@@ -227,7 +229,7 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
       <!-- Court radio grid -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label
-          v-for="court in COURTS" :key="court.id"
+          v-for="court in courtsStore.courts" :key="court.id"
           class="flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all text-sm"
           :class="form.courtId === court.id ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'"
         >

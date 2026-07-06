@@ -1,7 +1,8 @@
 <script setup>
 import { ref } from 'vue'
-import { Key, Hash, Check, AlertCircle } from '@lucide/vue'
+import { Key, Hash, Check, AlertCircle, Terminal, Trash2, ChevronDown, ChevronUp } from '@lucide/vue'
 import { useSettingsStore } from '@/stores/settings'
+import { apiLog, clearApiLog } from '@/services/logger'
 
 const store    = useSettingsStore()
 const saved    = ref(false)
@@ -13,6 +14,16 @@ function save() {
   store.clubId      = clubId.value.trim()
   saved.value = true
   setTimeout(() => { saved.value = false }, 2000)
+}
+
+const expandedLog = ref(new Set())
+function toggleLog(i) {
+  if (expandedLog.value.has(i)) expandedLog.value.delete(i)
+  else expandedLog.value.add(i)
+  expandedLog.value = new Set(expandedLog.value)
+}
+function formatLogTime(iso) {
+  return new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 </script>
 
@@ -98,6 +109,49 @@ function save() {
       <p class="text-sm text-amber-800">
         Zonder token worden reserveringen <strong>niet automatisch geboekt</strong>. De wachtrij werkt wel.
       </p>
+    </div>
+
+    <!-- API debug log -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-50 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <Terminal class="w-4 h-4 text-slate-400" />
+          <h2 class="font-semibold text-slate-900">API-log</h2>
+          <span class="text-xs text-slate-400">({{ apiLog.length }})</span>
+        </div>
+        <button @click="clearApiLog" class="p-1.5 hover:bg-slate-100 rounded-lg transition-colors" title="Wissen">
+          <Trash2 class="w-4 h-4 text-slate-400" />
+        </button>
+      </div>
+
+      <p class="px-6 py-3 text-xs text-slate-400 border-b border-slate-50">
+        Laatste calls naar api.knltb.club — handig om te zien waar een boeking misgaat. Klik op een regel voor de volledige response.
+      </p>
+
+      <div v-if="apiLog.length === 0" class="px-6 py-8 text-center text-sm text-slate-400">
+        Nog geen API calls gelogd.
+      </div>
+
+      <div v-else class="max-h-96 overflow-y-auto divide-y divide-slate-50">
+        <div v-for="(entry, i) in apiLog" :key="i">
+          <button
+            @click="toggleLog(i)"
+            class="w-full flex items-center gap-2 px-6 py-2.5 text-left hover:bg-slate-50 transition-colors"
+          >
+            <component :is="expandedLog.has(i) ? ChevronUp : ChevronDown" class="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
+            <span class="text-xs text-slate-400 font-mono flex-shrink-0 w-20">{{ formatLogTime(entry.time) }}</span>
+            <span
+              class="text-xs font-bold flex-shrink-0 w-10"
+              :class="entry.error ? 'text-red-500' : entry.ok ? 'text-green-600' : 'text-amber-600'"
+            >{{ entry.status || 'ERR' }}</span>
+            <span class="text-xs font-mono text-slate-600 truncate">{{ entry.method }} {{ entry.path }}</span>
+          </button>
+          <pre
+            v-if="expandedLog.has(i)"
+            class="mx-6 mb-3 p-3 bg-slate-950 text-slate-300 rounded-lg text-[11px] overflow-x-auto"
+          >{{ JSON.stringify(entry.error ?? entry.data, null, 2) }}</pre>
+        </div>
+      </div>
     </div>
 
   </div>

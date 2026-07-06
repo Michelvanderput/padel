@@ -5,13 +5,14 @@ import { Clock, Zap, CheckCircle2, Users, Plus, ChevronRight, Calendar, Target, 
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
-import { COURTS } from '@/constants/courts'
+import { useCourtsStore } from '@/stores/courts'
 import { getReservations } from '@/services/knltb'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 const reservationsStore = useReservationsStore()
 const membersStore = useMembersStore()
 const settings = useSettingsStore()
+const courtsStore = useCourtsStore()
 
 const stats = computed(() => ({
   pending:  reservationsStore.reservations.filter(r => r.status === 'pending').length,
@@ -28,7 +29,7 @@ const upcoming = computed(() =>
 )
 
 function getCourtName(id) {
-  return COURTS.find(c => c.id === id)?.name ?? 'Onbekende baan'
+  return courtsStore.courts.find(c => c.id === id)?.name ?? 'Onbekende baan'
 }
 
 function getMemberNames(ids) {
@@ -77,7 +78,7 @@ function formatLiveTime(iso) {
 }
 
 function getCourtNameFromRes(r) {
-  return r.court?.name ?? r.court_name ?? COURTS.find(c => c.id === r.court_id)?.name ?? 'Onbekende baan'
+  return r.court?.name ?? r.court_name ?? courtsStore.courts.find(c => c.id === r.court_id)?.name ?? 'Onbekende baan'
 }
 
 function getParticipantNames(r) {

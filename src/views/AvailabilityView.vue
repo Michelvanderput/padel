@@ -4,10 +4,11 @@ import { ChevronLeft, ChevronRight, RefreshCw, AlertCircle, Zap, CalendarDays } 
 import { useRouter } from 'vue-router'
 import { getAvailability } from '@/services/knltb'
 import { useSettingsStore } from '@/stores/settings'
-import { COURTS } from '@/constants/courts'
+import { useCourtsStore } from '@/stores/courts'
 
-const settings = useSettingsStore()
-const router   = useRouter()
+const settings   = useSettingsStore()
+const courtsStore = useCourtsStore()
+const router     = useRouter()
 
 // ── Calendar ────────────────────────────────────────────────
 const today      = new Date()
@@ -42,7 +43,7 @@ function same(a, b) { return a && b && a.toDateString() === b.toDateString() }
 function past(d) { const c = new Date(d); c.setHours(23,59,59); return c < today }
 
 // ── Court selector ───────────────────────────────────────────
-const selectedCourt = ref(COURTS[0].id)
+const selectedCourt = ref(courtsStore.courts[0]?.id || '')
 
 // ── Time slots ───────────────────────────────────────────────
 const TIME_SLOTS = []
@@ -63,7 +64,7 @@ const grid = ref({})
 
 function initGrid() {
   const g = {}
-  for (const t of TIME_SLOTS) { g[t] = {}; for (const c of COURTS) g[t][c.id] = 'available' }
+  for (const t of TIME_SLOTS) { g[t] = {}; for (const c of courtsStore.courts) g[t][c.id] = 'available' }
   return g
 }
 
@@ -92,7 +93,7 @@ function parseResponse(data) {
       const key = `${String(cur.getHours()).padStart(2,'0')}:${String(cur.getMinutes()).padStart(2,'0')}`
       if (g[key]) {
         if (courtId && g[key][courtId] !== undefined) g[key][courtId] = 'booked'
-        else if (!courtId) for (const c of COURTS) g[key][c.id] = 'booked'
+        else if (!courtId) for (const c of courtsStore.courts) g[key][c.id] = 'booked'
       }
       cur.setMinutes(cur.getMinutes() + 30)
     }
@@ -205,7 +206,7 @@ function bookSlot(time) {
           <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Kies baan</p>
           <div class="space-y-1.5">
             <label
-              v-for="court in COURTS"
+              v-for="court in courtsStore.courts"
               :key="court.id"
               class="flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all text-sm"
               :class="selectedCourt === court.id ? 'border-green-500 bg-green-50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'"
@@ -239,7 +240,7 @@ function bookSlot(time) {
           <p class="font-semibold text-slate-900 text-sm">
             {{ dateLabel ?? 'Selecteer een datum' }}
           </p>
-          <p v-if="dateLabel" class="text-xs text-slate-400 mt-0.5">{{ COURTS.find(c => c.id === selectedCourt)?.name }}</p>
+          <p v-if="dateLabel" class="text-xs text-slate-400 mt-0.5">{{ courtsStore.courts.find(c => c.id === selectedCourt)?.name }}</p>
         </div>
         <button
           v-if="selected && settings.isConfigured"

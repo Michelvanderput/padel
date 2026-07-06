@@ -6,6 +6,7 @@ import { initScheduler } from '@/services/scheduler'
 import { useSettingsStore } from '@/stores/settings'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
+import { useCourtsStore } from '@/stores/courts'
 
 const route = useRoute()
 const settingsStore = useSettingsStore()
@@ -21,8 +22,12 @@ const navLinks = [
 onMounted(async () => {
   const reservationsStore = useReservationsStore()
   const membersStore = useMembersStore()
+  const courtsStore = useCourtsStore()
   await Promise.all([reservationsStore.init(), membersStore.init()])
   initScheduler()
+  if (settingsStore.isConfigured) {
+    courtsStore.fetchCourts(settingsStore.clubId, settingsStore.lisaToken)
+  }
 })
 </script>
 

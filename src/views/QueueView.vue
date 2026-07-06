@@ -5,11 +5,12 @@ import { Calendar, Clock, Users, Trash2, XCircle, Plus, ChevronDown, ChevronUp, 
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { cancelScheduled } from '@/services/scheduler'
-import { COURTS } from '@/constants/courts'
+import { useCourtsStore } from '@/stores/courts'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 const reservationsStore = useReservationsStore()
 const membersStore      = useMembersStore()
+const courtsStore       = useCourtsStore()
 
 const filterStatus    = ref('all')
 const expandedLogs    = ref(new Set())
@@ -36,7 +37,7 @@ function getMemberName(id) {
 }
 
 function getCourtName(courtId) {
-  return COURTS.find(c => c.id === courtId)?.name ?? courtId
+  return courtsStore.courts.find(c => c.id === courtId)?.name ?? courtId
 }
 
 function formatDate(str) {
