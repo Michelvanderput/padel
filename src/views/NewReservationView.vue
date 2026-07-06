@@ -49,14 +49,13 @@ function toggleMember(id) {
 }
 function getMember(id) { return membersStore.members.find(m => m.id === id) }
 
-function submit() {
+async function submit() {
   if (!isValid.value) return
-  reservationsStore.addReservation({
+  const newRes = await reservationsStore.addReservation({
     location: LOCATION, date: form.value.date, timeSlot: form.value.timeSlot,
     duration: form.value.duration, courtId: form.value.courtId,
     bookingTrigger: computedTrigger.value, memberIds: [...selectedMemberIds.value]
   })
-  const newRes = reservationsStore.reservations.at(-1)
   if (newRes) scheduleReservation(newRes)
   router.push('/wachtrij')
 }

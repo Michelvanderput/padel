@@ -4,6 +4,8 @@ import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { LayoutDashboard, Users, PlusCircle, ListOrdered, Settings, AlertTriangle } from '@lucide/vue'
 import { initScheduler } from '@/services/scheduler'
 import { useSettingsStore } from '@/stores/settings'
+import { useReservationsStore } from '@/stores/reservations'
+import { useMembersStore } from '@/stores/members'
 
 const route = useRoute()
 const settingsStore = useSettingsStore()
@@ -16,7 +18,12 @@ const navLinks = [
   { to: '/instellingen', label: 'Instellingen',  shortLabel: 'Config',   icon: Settings },
 ]
 
-onMounted(() => { initScheduler() })
+onMounted(async () => {
+  const reservationsStore = useReservationsStore()
+  const membersStore = useMembersStore()
+  await Promise.all([reservationsStore.init(), membersStore.init()])
+  initScheduler()
+})
 </script>
 
 <template>

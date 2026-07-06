@@ -1,32 +1,40 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 export const useReservationsStore = defineStore('reservations', () => {
-  const reservations = ref(JSON.parse(localStorage.getItem('knltb-reservations') || '[]'))
+  const reservations = ref([])
 
-  watch(reservations, (val) => {
-    localStorage.setItem('knltb-reservations', JSON.stringify(val))
-  }, { deep: true })
+  async function init() {
+    try {
+      const res = await fetch('/api/reservations')
+      if (res.ok) reservations.value = await res.json()
+    } catch (_) {}
+  }
 
-  function addReservation({ location, date, timeSlot, duration, courtId, bookingTrigger, memberIds }) {
-    reservations.value.push({
+  async function addReservation({ location, date, timeSlot, duration, courtId, bookingTrigger, memberIds }) {
+    const newRes = {
       id: crypto.randomUUID(),
-      location,
-      date,
-      timeSlot,
-      duration,
-      courtId,
-      bookingTrigger,
-      memberIds,
+      location, date, timeSlot, duration, courtId, bookingTrigger, memberIds,
       status: 'pending',
       logs: [],
       createdAt: new Date().toISOString()
-    })
+    }
+    reservations.value.push(newRes)
+    await fetch('/api/reservations', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(newRes) })
+    return newRes
   }
 
-  function updateStatus(id, status) {
+  async function updateStatus(id, status) {
     const res = reservations.value.find(r => r.id === id)
-    if (res) res.status = status
+    if (!res) return
+    res.status = status
+    await fetch(`/api/reservations/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ status, logs: res.logs })
+    })
   }
 
   function addLog(id, message) {
@@ -34,13 +42,14 @@ export const useReservationsStore = defineStore('reservations', () => {
     if (res) res.logs.push({ time: new Date().toISOString(), message })
   }
 
-  function cancelReservation(id) {
-    updateStatus(id, 'cancelled')
+  async function cancelReservation(id) {
+    await updateStatus(id, 'cancelled')
   }
 
-  function removeReservation(id) {
+  async function removeReservation(id) {
     reservations.value = reservations.value.filter(r => r.id !== id)
+    await fetch(`/api/reservations/${id}`, { method: 'DELETE' })
   }
 
-  return { reservations, addReservation, updateStatus, addLog, cancelReservation, removeReservation }
+  return { reservations, init, addReservation, updateStatus, addLog, cancelReservation, removeReservation }
 })
