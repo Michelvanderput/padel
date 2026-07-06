@@ -129,6 +129,8 @@ function buildSlotMap(data, courtId) {
         const dur = Math.round((new Date(slot.end_time) - new Date(slot.start_time)) / 60000)
         if (!map[key]) map[key] = { status: 'available', durations: [] }
         if (!map[key].durations.includes(dur)) map[key].durations.push(dur)
+        // Als 90 min beschikbaar is, is 60 min altijd ook boekbaar (per definitie niet prime time)
+        if (dur === 90 && !map[key].durations.includes(60)) map[key].durations.unshift(60)
       }
     } else if (block.block_type === 'reservation') {
       const cur = new Date(block.start)
@@ -353,7 +355,7 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
       <div>
         <div class="flex items-center justify-between mb-2">
           <label class="block text-sm font-medium text-slate-700">Speelduur</label>
-          <span v-if="form.timeSlot && selectedSlotDurations.length === 1" class="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+          <span v-if="form.timeSlot && selectedSlotDurations.length === 1 && selectedSlotDurations[0] === 60" class="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
             ⚡ Prime time — alleen {{ selectedSlotDurations[0] }} min
           </span>
         </div>

@@ -60,6 +60,14 @@ export function deleteReservation(clubId, reservationId, lisaToken) {
 }
 
 /**
+ * Haal aankomende reserveringen op voor de club (vanaf vandaag).
+ */
+export function getReservations(clubId, lisaToken) {
+  const from = new Date().toISOString()
+  return request('GET', `/v1/pub/tennis/clubs/${clubId}/reservations?time_from=${from}`, lisaToken)
+}
+
+/**
  * Controleer beschikbaarheid van banen vanaf een datum.
  */
 export function getAvailability(clubId, date, lisaToken) {

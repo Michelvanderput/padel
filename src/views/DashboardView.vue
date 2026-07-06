@@ -1,14 +1,17 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Clock, Zap, CheckCircle2, Users, Plus, ChevronRight, Calendar, Target } from '@lucide/vue'
+import { Clock, Zap, CheckCircle2, Users, Plus, ChevronRight, Calendar, Target, RefreshCw, AlertCircle } from '@lucide/vue'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
+import { useSettingsStore } from '@/stores/settings'
 import { COURTS } from '@/constants/courts'
+import { getReservations } from '@/services/knltb'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 const reservationsStore = useReservationsStore()
 const membersStore = useMembersStore()
+const settings = useSettingsStore()
 
 const stats = computed(() => ({
   pending:  reservationsStore.reservations.filter(r => r.status === 'pending').length,
@@ -43,6 +46,46 @@ function formatDate(str) {
 function formatTrigger(iso) {
   return new Date(iso).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
+
+// ── Live KNLTB reserveringen ─────────────────────────────────
+const liveReservations = ref([])
+const liveLoading = ref(false)
+const liveError = ref(null)
+
+async function fetchLiveReservations() {
+  if (!settings.isConfigured) return
+  liveLoading.value = true
+  liveError.value = null
+  try {
+    const res = await getReservations(settings.clubId, settings.lisaToken)
+    if (!res.ok) { liveError.value = `API fout ${res.status}`; return }
+    const data = res.data
+    const list = data?.reservations ?? data?.data ?? (Array.isArray(data) ? data : [])
+    liveReservations.value = list
+      .filter(r => r.start_at && new Date(r.start_at) >= new Date())
+      .sort((a, b) => new Date(a.start_at) - new Date(b.start_at))
+  } catch (e) { liveError.value = e.message }
+  finally { liveLoading.value = false }
+}
+
+function formatLiveDate(iso) {
+  return new Date(iso).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function formatLiveTime(iso) {
+  return new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+}
+
+function getCourtNameFromRes(r) {
+  return r.court?.name ?? r.court_name ?? COURTS.find(c => c.id === r.court_id)?.name ?? 'Onbekende baan'
+}
+
+function getParticipantNames(r) {
+  const members = r.participants ?? r.club_members ?? r.members ?? []
+  return members.map(m => (m.full_name ?? m.name ?? '').split(' ')[0]).filter(Boolean).join(' · ')
+}
+
+onMounted(fetchLiveReservations)
 
 const photos = [
   { src: '/photos/padel (1).png', alt: 'Padel actie bij het net' },
@@ -145,7 +188,58 @@ const photos = [
       </div>
     </div>
 
-    <!-- Upcoming -->
+    <!-- Live KNLTB reserveringen -->
+    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+        <h2 class="font-semibold text-slate-900">Mijn reserveringen (KNLTB)</h2>
+        <button @click="fetchLiveReservations" class="p-1.5 hover:bg-slate-100 rounded-lg transition-colors" :disabled="liveLoading">
+          <RefreshCw class="w-4 h-4 text-slate-400" :class="liveLoading ? 'animate-spin' : ''" />
+        </button>
+      </div>
+
+      <!-- Not configured -->
+      <div v-if="!settings.isConfigured" class="flex items-center gap-2 px-5 py-4 text-sm text-amber-700">
+        <AlertCircle class="w-4 h-4 flex-shrink-0" />
+        Stel eerst een token in via <RouterLink to="/instellingen" class="underline font-medium ml-1">Instellingen</RouterLink>.
+      </div>
+
+      <!-- Loading -->
+      <div v-else-if="liveLoading" class="flex items-center justify-center gap-3 px-5 py-10">
+        <div class="w-5 h-5 rounded-full border-2 border-green-500 border-t-transparent animate-spin"></div>
+        <span class="text-sm text-slate-400">Ophalen…</span>
+      </div>
+
+      <!-- Error -->
+      <div v-else-if="liveError" class="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border-b border-amber-100 px-5 py-3">
+        <AlertCircle class="w-3.5 h-3.5 flex-shrink-0" />{{ liveError }}
+      </div>
+
+      <!-- Empty -->
+      <div v-else-if="liveReservations.length === 0" class="px-5 py-10 text-center">
+        <p class="text-sm text-slate-400">Geen aankomende reserveringen gevonden</p>
+      </div>
+
+      <!-- List -->
+      <div v-else class="divide-y divide-slate-50">
+        <div
+          v-for="r in liveReservations"
+          :key="r.id"
+          class="px-5 py-4 flex items-center gap-4"
+        >
+          <div class="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+            <Calendar class="w-5 h-5 text-green-500" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="font-semibold text-slate-900 text-sm truncate">{{ getCourtNameFromRes(r) }}</p>
+            <p class="text-sm text-slate-500">{{ formatLiveDate(r.start_at) }} · {{ formatLiveTime(r.start_at) }} – {{ formatLiveTime(r.end_at) }}</p>
+            <p v-if="getParticipantNames(r)" class="text-xs text-slate-400 mt-0.5">{{ getParticipantNames(r) }}</p>
+          </div>
+          <span class="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex-shrink-0">geboekt</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upcoming (scheduler wachtrij) -->
     <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
         <h2 class="font-semibold text-slate-900">Aankomende reserveringen</h2>
