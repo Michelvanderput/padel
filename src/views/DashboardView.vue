@@ -49,9 +49,16 @@ function formatTrigger(iso) {
 }
 
 // ── Live KNLTB reserveringen ─────────────────────────────────
-const liveReservations = ref([])
+const liveReservations = ref([])   // alle club-reserveringen (ongefilterd)
 const liveLoading = ref(false)
 const liveError = ref(null)
+const showAllClub = ref(false)     // false = alleen "onze" reserveringen tonen
+
+const displayedReservations = computed(() => {
+  if (showAllClub.value) return liveReservations.value
+  const filtered = liveReservations.value.filter(r => isOwnReservation(r) !== false)
+  return filtered
+})
 
 // Haal de starttijd uit een reservering-object — de exacte veldnaam is niet
 // bevestigd met een echte response, dus we proberen meerdere varianten
@@ -113,9 +120,25 @@ function getCourtNameFromRes(r) {
     ?? 'Onbekende baan'
 }
 
+function getParticipants(r) {
+  return r.participants ?? r.club_members ?? r.members ?? r.court_booking?.participants ?? []
+}
+
 function getParticipantNames(r) {
-  const members = r.participants ?? r.club_members ?? r.members ?? []
-  return members.map(m => (m.full_name ?? m.name ?? '').split(' ')[0]).filter(Boolean).join(' · ')
+  return getParticipants(r).map(m => (m.full_name ?? m.name ?? '').split(' ')[0]).filter(Boolean).join(' · ')
+}
+
+// Dit endpoint geeft ALLE reserveringen van de hele club terug (zie
+// getReservations in services/knltb.js — geen lid-filter in de URL).
+// We filteren hier client-side op onze eigen groep leden, zodat alleen
+// "onze" reserveringen op het dashboard verschijnen.
+function isOwnReservation(r) {
+  const participantIds = getParticipants(r)
+    .map(m => m.id ?? m.club_member_id ?? m.uuid)
+    .filter(Boolean)
+  if (participantIds.length === 0) return null // onbekend — kunnen we niet checken
+  const ourIds = membersStore.members.map(m => m.clubMemberId).filter(Boolean)
+  return participantIds.some(id => ourIds.includes(id))
 }
 
 onMounted(fetchLiveReservations)
@@ -223,11 +246,20 @@ const photos = [
 
     <!-- Live KNLTB reserveringen -->
     <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
-        <h2 class="font-semibold text-slate-900">Mijn reserveringen (KNLTB)</h2>
-        <button @click="fetchLiveReservations" class="p-1.5 hover:bg-slate-100 rounded-lg transition-colors" :disabled="liveLoading">
-          <RefreshCw class="w-4 h-4 text-slate-400" :class="liveLoading ? 'animate-spin' : ''" />
-        </button>
+      <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
+        <h2 class="font-semibold text-slate-900">{{ showAllClub ? 'Alle clubreserveringen (KNLTB)' : 'Mijn reserveringen (KNLTB)' }}</h2>
+        <div class="flex items-center gap-2">
+          <button
+            @click="showAllClub = !showAllClub"
+            class="text-xs font-medium px-2.5 py-1 rounded-full border transition-colors"
+            :class="showAllClub ? 'bg-slate-900 text-white border-slate-900' : 'text-slate-500 border-slate-200 hover:bg-slate-50'"
+          >
+            {{ showAllClub ? 'Toon alleen de mijne' : 'Toon hele club' }}
+          </button>
+          <button @click="fetchLiveReservations" class="p-1.5 hover:bg-slate-100 rounded-lg transition-colors" :disabled="liveLoading">
+            <RefreshCw class="w-4 h-4 text-slate-400" :class="liveLoading ? 'animate-spin' : ''" />
+          </button>
+        </div>
       </div>
 
       <!-- Not configured -->
@@ -248,14 +280,16 @@ const photos = [
       </div>
 
       <!-- Empty -->
-      <div v-else-if="liveReservations.length === 0" class="px-5 py-10 text-center">
-        <p class="text-sm text-slate-400">Geen aankomende reserveringen gevonden</p>
+      <div v-else-if="displayedReservations.length === 0" class="px-5 py-10 text-center">
+        <p class="text-sm text-slate-400">
+          {{ liveReservations.length > 0 && !showAllClub ? 'Geen van jullie reserveringen gevonden — klik "Toon hele club" om te controleren' : 'Geen aankomende reserveringen gevonden' }}
+        </p>
       </div>
 
       <!-- List -->
       <div v-else class="divide-y divide-slate-50">
         <div
-          v-for="r in liveReservations"
+          v-for="r in displayedReservations"
           :key="r.id"
           class="px-5 py-4 flex items-center gap-4"
         >
