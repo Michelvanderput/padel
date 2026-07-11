@@ -2,5 +2,11 @@
   "rewrites": [
     { "source": "/api/knltb/:path*", "destination": "https://api.knltb.club/:path*" },
     { "source": "/:path((?!api/).*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/cron/tick.js": { "maxDuration": 60 }
+  },
+  "crons": [
+    { "path": "/api/cron/tick", "schedule": "* * * * *" }
   ]
 }

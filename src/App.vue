@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { RouterView, RouterLink, useRoute } from 'vue-router'
 import { LayoutDashboard, Users, PlusCircle, ListOrdered, Settings, AlertTriangle } from '@lucide/vue'
 import { initScheduler } from '@/services/scheduler'
@@ -23,11 +23,16 @@ onMounted(async () => {
   const reservationsStore = useReservationsStore()
   const membersStore = useMembersStore()
   const courtsStore = useCourtsStore()
-  await Promise.all([reservationsStore.init(), membersStore.init()])
+  await Promise.all([reservationsStore.init(), membersStore.init(), settingsStore.init()])
   initScheduler()
   if (settingsStore.isConfigured) {
     courtsStore.fetchCourts(settingsStore.clubId, settingsStore.lisaToken)
   }
+
+  // Server-side cron-worker kan reserveringen boeken zonder dat deze tab open staat —
+  // periodiek verversen zorgt dat de UI die wijzigingen (bijna) live laat zien.
+  const refreshInterval = setInterval(() => reservationsStore.init(), 10_000)
+  onUnmounted(() => clearInterval(refreshInterval))
 })
 </script>
 
