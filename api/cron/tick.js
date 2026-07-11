@@ -1,5 +1,5 @@
 import { Redis } from '@upstash/redis'
-import { createReservation } from '../_lib/knltb.js'
+import { createReservation } from '../../server/knltb.js'
 
 const redis = Redis.fromEnv()
 const RES_KEY      = 'knltb:reservations'
