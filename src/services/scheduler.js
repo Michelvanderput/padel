@@ -35,7 +35,8 @@ export function scheduleReservation(reservation) {
   const triggerMs = new Date(reservation.bookingTrigger).getTime()
 
   if (triggerMs - Date.now() < 0) {
-    store.addLog(reservation.id, '⚠ Boektijdstip is al verstreken — niet ingepland.')
+    store.addLog(reservation.id, '⚠ Boektijdstip is al verstreken — start direct boekpogingen.')
+    startPolling(reservation.id)
     return
   }
 
