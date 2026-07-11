@@ -27,6 +27,7 @@ async function request(method, path, lisaToken, body) {
   }
 }
 
+
 /**
  * Maak een reservering aan (server-side variant van src/services/knltb.js).
  */
