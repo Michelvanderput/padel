@@ -77,33 +77,27 @@ async function startPolling(id) {
   reservationsStore.updateStatus(id, 'active')
   reservationsStore.addLog(id, '🚀 Boektijdstip bereikt — start boekpogingen...')
 
-  // Eenmalige diagnostische pre-checks — helpen om fouten sneller te lokaliseren
-  // zonder de eigenlijke boekpogingen te vertragen of te blokkeren.
+  // Eenmalige diagnostische pre-checks — puur informatief, draaien op de achtergrond
+  // en blokkeren de eigenlijke (tijdskritische) boekpogingen niet.
   const clubMemberIdsPre = res.memberIds
     .map(mid => membersStore.members.find(m => m.id === mid)?.clubMemberId)
     .filter(Boolean)
 
   if (clubMemberIdsPre.length === 4) {
-    try {
-      const validation = await validateReservation(settingsStore.clubId, {
-        date: res.date, timeSlot: res.timeSlot, courtId: res.courtId, clubMemberIds: clubMemberIdsPre
-      }, settingsStore.lisaToken)
-      reservationsStore.addLog(id, `🔍 Validatie: HTTP ${validation.status} — ${JSON.stringify(validation.data)?.slice(0, 300) ?? 'geen data'}`)
-    } catch (e) {
-      reservationsStore.addLog(id, `🔍 Validatie mislukt (netwerkfout): ${e.message}`)
-    }
+    validateReservation(settingsStore.clubId, {
+      date: res.date, timeSlot: res.timeSlot, courtId: res.courtId, clubMemberIds: clubMemberIdsPre
+    }, settingsStore.lisaToken)
+      .then(validation => reservationsStore.addLog(id, `🔍 Validatie: HTTP ${validation.status} — ${JSON.stringify(validation.data)?.slice(0, 300) ?? 'geen data'}`))
+      .catch(e => reservationsStore.addLog(id, `🔍 Validatie mislukt (netwerkfout): ${e.message}`))
 
-    try {
-      const products = await getBookingProducts(settingsStore.clubId, settingsStore.lisaToken)
-      reservationsStore.addLog(id, `📦 Boekingsproducten: HTTP ${products.status} — ${JSON.stringify(products.data)?.slice(0, 300) ?? 'geen data'}`)
-    } catch (e) {
-      reservationsStore.addLog(id, `📦 Boekingsproducten ophalen mislukt: ${e.message}`)
-    }
+    getBookingProducts(settingsStore.clubId, settingsStore.lisaToken)
+      .then(products => reservationsStore.addLog(id, `📦 Boekingsproducten: HTTP ${products.status} — ${JSON.stringify(products.data)?.slice(0, 300) ?? 'geen data'}`))
+      .catch(e => reservationsStore.addLog(id, `📦 Boekingsproducten ophalen mislukt: ${e.message}`))
   }
 
   let attempt = 0
 
-  polls[id] = setInterval(async () => {
+  const tryBook = async () => {
     if (attempt >= MAX_ATTEMPTS) {
       clearInterval(polls[id]); delete polls[id]
       reservationsStore.updateStatus(id, 'failed')
@@ -148,5 +142,9 @@ async function startPolling(id) {
     } catch (err) {
       reservationsStore.addLog(id, `→ Poging ${attempt} netwerkfout: ${err.message}`)
     }
-  }, POLL_INTERVAL_MS)
+  }
+
+  // Meteen de eerste poging doen — niet wachten op de eerste setInterval-tick.
+  tryBook()
+  polls[id] = setInterval(tryBook, POLL_INTERVAL_MS)
 }
