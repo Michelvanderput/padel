@@ -8,7 +8,7 @@ const polls  = {}
 
 const POLL_INTERVAL_MS  = 2000
 const MAX_ATTEMPTS      = 150   // 5 minuten
-const TRIGGER_CHECK_MS  = 3000  // check trigger elke 3s (robuust tegen browser throttling)
+const TRIGGER_CHECK_MS  = 500   // fallback check elke 500ms voor browser throttling edge-cases
 
 /** Initialiseer bij opstarten — plant alle pending reserveringen in */
 export function initScheduler() {
@@ -45,20 +45,32 @@ export function scheduleReservation(reservation) {
   })
   store.addLog(reservation.id, `⏰ Ingepland: boeken op ${triggerStr}`)
 
-  // Korte polling-interval i.p.v. één lange setTimeout — immuun voor browser throttling
-  timers[reservation.id] = setInterval(() => {
-    if (Date.now() >= triggerMs) {
-      clearInterval(timers[reservation.id])
-      delete timers[reservation.id]
-      startPolling(reservation.id)
+  // Exacte setTimeout op de resterende milliseconden voor precisie op de seconde.
+  // Fallback setInterval van 500ms vangt browser throttling op (tab inactief).
+  const fire = () => {
+    if (timers[reservation.id + '_fb']) {
+      clearInterval(timers[reservation.id + '_fb'])
+      delete timers[reservation.id + '_fb']
     }
+    clearTimeout(timers[reservation.id])
+    delete timers[reservation.id]
+    startPolling(reservation.id)
+  }
+
+  const remaining = triggerMs - Date.now()
+  timers[reservation.id] = setTimeout(fire, remaining)
+
+  // Fallback: als browser de setTimeout throttlet (tab op achtergrond), vang dit op
+  timers[reservation.id + '_fb'] = setInterval(() => {
+    if (Date.now() >= triggerMs) fire()
   }, TRIGGER_CHECK_MS)
 }
 
 /** Annuleer een ingestelde timer of actieve poll */
 export function cancelScheduled(id) {
-  if (timers[id]) { clearInterval(timers[id]); delete timers[id] }
-  if (polls[id])  { clearInterval(polls[id]);  delete polls[id] }
+  if (timers[id])        { clearTimeout(timers[id]);         delete timers[id] }
+  if (timers[id + '_fb'])  { clearInterval(timers[id + '_fb']); delete timers[id + '_fb'] }
+  if (polls[id])         { clearInterval(polls[id]);          delete polls[id] }
 }
 
 async function startPolling(id) {
