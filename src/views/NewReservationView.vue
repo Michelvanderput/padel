@@ -104,12 +104,21 @@ const avError   = ref(null)
 const rawApiData = ref(null) // full response cached for court switching
 const slotMap   = ref({})
 
+const FALLBACK_SLOTS = (() => {
+  const s = []
+  for (let h = 8; h <= 22; h++) {
+    s.push(`${String(h).padStart(2,'0')}:00`)
+    if (h < 22) s.push(`${String(h).padStart(2,'0')}:30`)
+  }
+  return s
+})()
+
 const availableTimeSlots = computed(() => {
-  const keys = Object.keys(slotMap.value)
-  if (keys.length === 0) return []
-  return keys
-    .filter(t => slotMap.value[t].status !== 'closed')
-    .sort()
+  const keys = Object.keys(slotMap.value).filter(t => slotMap.value[t].status !== 'closed')
+  if (keys.length > 0) return keys.sort()
+  // API heeft nog geen beschikbaarheid (datum nog niet open) — toon standaard slots
+  if (form.value.date && !avLoading.value) return FALLBACK_SLOTS
+  return []
 })
 
 function localKey(isoStr) {
@@ -318,9 +327,12 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
 
           <!-- Slot chips -->
           <div class="flex flex-wrap gap-1.5">
-            <p v-if="availableTimeSlots.length === 0 && !avLoading && !avError" class="text-sm text-slate-400 text-center py-4 w-full">
+            <p v-if="availableTimeSlots.length === 0 && !avLoading && !avError && !form.date" class="text-sm text-slate-400 text-center py-4 w-full">
               Geen beschikbare tijdsloten voor deze datum
             </p>
+            <div v-if="form.date && !avLoading && Object.keys(slotMap.value).length === 0 && !avError" class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2 w-full">
+              ℹ️ Beschikbaarheid nog niet bekend (datum niet open) — standaard tijdsloten getoond
+            </div>
             <template v-for="time in availableTimeSlots" :key="time">
               <button
                 @click="pickSlot(time)"
