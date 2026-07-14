@@ -11,8 +11,8 @@ const SETTINGS_KEY = 'knltb:settings'
 // van een reservering binnen dit tijdvenster valt, slaapt de functie tot het
 // exacte moment en vuurt dan de boekpoging — onafhankelijk van of er een
 // browser/tab open staat.
-const LOOKAHEAD_MS = 55_000  // hoever vooruit kijken per tick
-const BUDGET_MS    = 55_000  // max. tijd die deze invocatie mag gebruiken (< maxDuration)
+const LOOKAHEAD_MS = 90_000  // hoever vooruit kijken per tick (>60s om cron-jitter op te vangen)
+const BUDGET_MS    = 58_000  // max. tijd die deze invocatie mag gebruiken (< maxDuration)
 const RETRY_MS     = 1_500   // tijd tussen boekpogingen als eerste poging niet lukt
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
