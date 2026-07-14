@@ -5,5 +5,8 @@
   ],
   "functions": {
     "api/cron/tick.js": { "maxDuration": 60 }
-  }
+  },
+  "crons": [
+    { "path": "/api/cron/tick", "schedule": "* * * * *" }
+  ]
 }
