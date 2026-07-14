@@ -32,7 +32,7 @@ const computedTrigger = computed(() => {
   if (bookingMode.value === 'direct') return new Date().toISOString()
   if (!form.value.date || !form.value.timeSlot) return null
   const play = new Date(`${form.value.date}T${form.value.timeSlot}:00`)
-  return new Date(play.getTime() - 72 * 60 * 60 * 1000).toISOString()
+  return new Date(play.getTime() - 72 * 60 * 60 * 1000 - 60 * 1000).toISOString()
 })
 
 function formatTriggerPreview(iso) {

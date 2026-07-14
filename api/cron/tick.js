@@ -43,7 +43,7 @@ async function processReservation(reservation, settings, members, startedAt) {
 
   // Herlaad vlak voor het boeken — annuleren/wijzigen kan intussen gebeurd zijn.
   const fresh = (await redis.get(RES_KEY) ?? []).find(r => r.id === reservation.id)
-  if (!fresh || fresh.status !== 'pending') return
+  if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'active')) return
 
   // Log de start_at die we gaan sturen ter verificatie
   const refUtc = new Date(`${reservation.date}T12:00:00Z`)
@@ -114,8 +114,8 @@ export default async function handler(req, res) {
   ])
 
   const due = (reservations ?? []).filter(r =>
-    r.status === 'pending' &&
-    (new Date(r.bookingTrigger).getTime() - Date.now()) <= LOOKAHEAD_MS
+    (r.status === 'pending' && (new Date(r.bookingTrigger).getTime() - Date.now()) <= LOOKAHEAD_MS) ||
+    r.status === 'active'
   )
 
   let processed = 0
