@@ -67,7 +67,8 @@ async function startPolling(id) {
   const membersStore      = useMembersStore()
 
   const res = reservationsStore.reservations.find(r => r.id === id)
-  if (!res || res.status !== 'pending') return
+  if (!res || (res.status !== 'pending' && res.status !== 'active')) return
+  if (polls[id]) return
 
   if (!settingsStore.lisaToken) {
     reservationsStore.addLog(id, '✗ Geen x-lisa-auth-token ingesteld — ga naar Instellingen.')
@@ -136,7 +137,7 @@ async function startPolling(id) {
           reservationsStore.addLog(id, `  Reservering ID: ${result.data.id}`)
         }
       } else {
-        const msg = result.data?.message ?? result.data?.error ?? JSON.stringify(result.data)?.slice(0, 200) ?? 'geen details'
+        const msg = JSON.stringify(result.data ?? 'geen details')
         reservationsStore.addLog(id, `→ Poging ${attempt}: HTTP ${result.status} — ${msg}`)
       }
     } catch (err) {

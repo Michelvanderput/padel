@@ -45,7 +45,20 @@ export function getMember(clubId, memberUuid, lisaToken) {
  * start_at      = lokale datetime → automatisch naar UTC geconverteerd.
  */
 export function createReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  const startAt = new Date(`${date}T${timeSlot}:00`).toISOString()
+  // Bepaal Amsterdam UTC-offset voor de speeldatum (CET=+01:00, CEST=+02:00)
+  // Werkt correct op zowel browser als Vercel Node (UTC omgeving)
+  const tzOffset = (() => {
+    const fmt = new Intl.DateTimeFormat('en', {
+      timeZone: 'Europe/Amsterdam',
+      timeZoneName: 'shortOffset',
+      year: 'numeric'
+    })
+    const parts = fmt.formatToParts(new Date(`${date}T12:00:00Z`))
+    const tzPart = parts.find(p => p.type === 'timeZoneName')?.value ?? 'GMT+2'
+    const match = tzPart.match(/GMT([+-]\d+(?::\d+)?)/)
+    return match ? match[1] : '+02:00'
+  })()
+  const startAt = `${date}T${timeSlot}:00${tzOffset}`
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations`, lisaToken, {
     reservation: {
