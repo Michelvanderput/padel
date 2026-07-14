@@ -89,13 +89,9 @@ async function processReservation(reservation, settings, members, startedAt) {
 }
 
 export default async function handler(req, res) {
-  // Vercel cron stuurt automatisch: Authorization: Bearer <CRON_SECRET>
-  // Als CRON_SECRET niet ingesteld is, verzoek gewoon doorlaten (dev/test).
-  if (process.env.CRON_SECRET) {
-    const secret = (req.headers['authorization'] || '').replace('Bearer ', '')
-    if (secret !== process.env.CRON_SECRET) {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
+  const secret = (req.headers['authorization'] || '').replace('Bearer ', '') || req.query.secret
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' })
   }
 
   const startedAt = Date.now()
