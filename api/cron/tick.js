@@ -45,7 +45,14 @@ async function processReservation(reservation, settings, members, startedAt) {
   const fresh = (await redis.get(RES_KEY) ?? []).find(r => r.id === reservation.id)
   if (!fresh || fresh.status !== 'pending') return
 
-  pushLog(logs, '🚀 [server] Boektijdstip bereikt — start boekpogingen...')
+  // Log de start_at die we gaan sturen ter verificatie
+  const refUtc = new Date(`${reservation.date}T12:00:00Z`)
+  const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
+  const offsetMin = Math.round((amsLocal - refUtc) / 60000)
+  const sign = offsetMin >= 0 ? '+' : '-'
+  const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
+  const mm2 = String(Math.abs(offsetMin) % 60).padStart(2, '0')
+  pushLog(logs, `🚀 [server] Boektijdstip bereikt — start_at wordt: ${reservation.date}T${reservation.timeSlot}:00${sign}${hh}:${mm2}`)
   await saveReservation(reservation.id, { status: 'active', logs })
 
   const clubMemberIds = reservation.memberIds

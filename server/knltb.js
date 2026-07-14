@@ -32,19 +32,15 @@ async function request(method, path, lisaToken, body) {
  * Maak een reservering aan (server-side variant van src/services/knltb.js).
  */
 export function createReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  // Vercel draait in UTC — bepaal de Amsterdam offset (CET=+01:00 / CEST=+02:00)
-  const tzOffset = (() => {
-    const fmt = new Intl.DateTimeFormat('en', {
-      timeZone: 'Europe/Amsterdam',
-      timeZoneName: 'shortOffset',
-      year: 'numeric'
-    })
-    const parts = fmt.formatToParts(new Date(`${date}T12:00:00Z`))
-    const tzPart = parts.find(p => p.type === 'timeZoneName')?.value ?? 'GMT+2'
-    const match = tzPart.match(/GMT([+-]\d+(?::\d+)?)/)
-    return match ? match[1] : '+02:00'
-  })()
-  const startAt = `${date}T${timeSlot}:00${tzOffset}`
+  // Vercel draait in UTC. Bepaal Amsterdam offset (CET=+01:00 / CEST=+02:00) door
+  // de lokale Amsterdam-tijd te vergelijken met UTC via toLocaleString.
+  const refUtc = new Date(`${date}T12:00:00Z`)
+  const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
+  const offsetMin = Math.round((amsLocal - refUtc) / 60000)
+  const sign = offsetMin >= 0 ? '+' : '-'
+  const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
+  const mm = String(Math.abs(offsetMin) % 60).padStart(2, '0')
+  const startAt = `${date}T${timeSlot}:00${sign}${hh}:${mm}`
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations`, lisaToken, {
     reservation: {
