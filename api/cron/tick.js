@@ -13,7 +13,7 @@ const SETTINGS_KEY = 'knltb:settings'
 // browser/tab open staat.
 const LOOKAHEAD_MS = 90_000  // hoever vooruit kijken per tick (>60s om cron-jitter op te vangen)
 const BUDGET_MS    = 58_000  // max. tijd die deze invocatie mag gebruiken (< maxDuration)
-const RETRY_MS     = 1_500   // tijd tussen boekpogingen als eerste poging niet lukt
+const RETRY_MS     = 500     // tijd tussen boekpogingen als eerste poging niet lukt
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -33,8 +33,16 @@ function pushLog(logs, message) {
 
 async function processReservation(reservation, settings, members, startedAt) {
   const logs = [...(reservation.logs ?? [])]
-  const triggerMs = new Date(reservation.bookingTrigger).getTime()
-  const delay = triggerMs - Date.now()
+
+  // Bereken het exacte Amsterdam-tijdstip van de speeltijd als UTC ms
+  const refUtc   = new Date(`${reservation.date}T12:00:00Z`)
+  const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
+  const offsetMin = Math.round((amsLocal - refUtc) / 60000)
+  const playMs   = new Date(`${reservation.date}T${reservation.timeSlot}:00`).getTime() - offsetMin * 60000
+
+  // Slaap tot EXACT 72 uur voor speeltijd — dat is het moment het KNLTB-venster opengaat
+  const openMs  = playMs - 72 * 60 * 60 * 1000
+  const delay   = openMs - Date.now()
 
   if (delay > 0) {
     const budgetLeft = BUDGET_MS - (Date.now() - startedAt) - 500
@@ -46,13 +54,10 @@ async function processReservation(reservation, settings, members, startedAt) {
   if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'active')) return
 
   // Log de start_at die we gaan sturen ter verificatie
-  const refUtc = new Date(`${reservation.date}T12:00:00Z`)
-  const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
-  const offsetMin = Math.round((amsLocal - refUtc) / 60000)
-  const sign = offsetMin >= 0 ? '+' : '-'
-  const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
-  const mm2 = String(Math.abs(offsetMin) % 60).padStart(2, '0')
-  pushLog(logs, `🚀 [server] Boektijdstip bereikt — start_at wordt: ${reservation.date}T${reservation.timeSlot}:00${sign}${hh}:${mm2}`)
+  const tzSign = offsetMin >= 0 ? '+' : '-'
+  const tzHH   = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
+  const tzMM   = String(Math.abs(offsetMin) % 60).padStart(2, '0')
+  pushLog(logs, `🚀 [server] Boektijdstip bereikt — start_at wordt: ${reservation.date}T${reservation.timeSlot}:00${tzSign}${tzHH}:${tzMM}`)
   await saveReservation(reservation.id, { status: 'active', logs })
 
   const clubMemberIds = reservation.memberIds
