@@ -99,14 +99,18 @@ async function pickDate(d) {
 
 // ── Availability ─────────────────────────────────────────────
 // slotMap: localTime (HH:MM) → { status: 'available'|'booked'|'closed', durations: number[] }
-const TIME_SLOTS = []
-for (let h = 7; h <= 21; h++) { TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`); TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`) }
-TIME_SLOTS.push('22:00')
-
 const avLoading = ref(false)
 const avError   = ref(null)
 const rawApiData = ref(null) // full response cached for court switching
 const slotMap   = ref({})
+
+const availableTimeSlots = computed(() => {
+  const keys = Object.keys(slotMap.value)
+  if (keys.length === 0) return []
+  return keys
+    .filter(t => slotMap.value[t].status !== 'closed')
+    .sort()
+})
 
 function localKey(isoStr) {
   const d = new Date(isoStr)
@@ -314,10 +318,11 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
 
           <!-- Slot chips -->
           <div class="flex flex-wrap gap-1.5">
-            <template v-for="time in TIME_SLOTS" :key="time">
-              <!-- Skip closed slots entirely -->
+            <p v-if="availableTimeSlots.length === 0 && !avLoading && !avError" class="text-sm text-slate-400 text-center py-4 w-full">
+              Geen beschikbare tijdsloten voor deze datum
+            </p>
+            <template v-for="time in availableTimeSlots" :key="time">
               <button
-                v-if="slotInfo(time).status !== 'closed'"
                 @click="pickSlot(time)"
                 :disabled="slotInfo(time).status === 'booked'"
                 class="flex flex-col items-center px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all min-w-[3.5rem]"
