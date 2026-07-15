@@ -53,11 +53,9 @@ async function processReservation(reservation, settings, members, startedAt) {
   const fresh = (await redis.get(RES_KEY) ?? []).find(r => r.id === reservation.id)
   if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'active')) return
 
-  // Log de start_at die we gaan sturen ter verificatie
-  const tzSign = offsetMin >= 0 ? '+' : '-'
-  const tzHH   = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
-  const tzMM   = String(Math.abs(offsetMin) % 60).padStart(2, '0')
-  pushLog(logs, `🚀 [server] Boektijdstip bereikt — start_at wordt: ${reservation.date}T${reservation.timeSlot}:00${tzSign}${tzHH}:${tzMM}`)
+  // Log de start_at die we gaan sturen ter verificatie (UTC-equivalent van Amsterdam speeltijd)
+  const startAt = new Date(playMs).toISOString()
+  pushLog(logs, `🚀 [server] Boektijdstip bereikt — start_at wordt: ${startAt}`)
   await saveReservation(reservation.id, { status: 'active', logs })
 
   const clubMemberIds = reservation.memberIds

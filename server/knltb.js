@@ -32,15 +32,14 @@ async function request(method, path, lisaToken, body) {
  * Maak een reservering aan (server-side variant van src/services/knltb.js).
  */
 export function createReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  // Vercel draait in UTC. Bepaal Amsterdam offset (CET=+01:00 / CEST=+02:00) door
-  // de lokale Amsterdam-tijd te vergelijken met UTC via toLocaleString.
+  // Vercel draait in UTC, KNLTB negeert blijkbaar de timezone-offset en ziet
+  // de kloktijd als UTC. We sturen dus de UTC-equivalent van de gewenste
+  // Amsterdam-speeltijd (bv. 18:30 CEST -> 16:30 UTC).
   const refUtc = new Date(`${date}T12:00:00Z`)
   const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
   const offsetMin = Math.round((amsLocal - refUtc) / 60000)
-  const sign = offsetMin >= 0 ? '+' : '-'
-  const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
-  const mm = String(Math.abs(offsetMin) % 60).padStart(2, '0')
-  const startAt = `${date}T${timeSlot}:00${sign}${hh}:${mm}`
+  const playMs = new Date(`${date}T${timeSlot}:00`).getTime() - offsetMin * 60000
+  const startAt = new Date(playMs).toISOString()
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations`, lisaToken, {
     reservation: {

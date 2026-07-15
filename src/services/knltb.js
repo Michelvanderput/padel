@@ -45,14 +45,13 @@ export function getMember(clubId, memberUuid, lisaToken) {
  * start_at      = lokale datetime → automatisch naar UTC geconverteerd.
  */
 export function createReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  // Bepaal Amsterdam offset (CET=+01:00 / CEST=+02:00) — werkt op browser en Vercel Node (UTC)
+  // KNLTB negeert blijkbaar de timezone-offset en ziet de kloktijd als UTC.
+  // Stuur dus de UTC-equivalent van de gewenste Amsterdam-speeltijd.
   const refUtc = new Date(`${date}T12:00:00Z`)
   const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
   const offsetMin = Math.round((amsLocal - refUtc) / 60000)
-  const sign = offsetMin >= 0 ? '+' : '-'
-  const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
-  const mm = String(Math.abs(offsetMin) % 60).padStart(2, '0')
-  const startAt = `${date}T${timeSlot}:00${sign}${hh}:${mm}`
+  const playMs = new Date(`${date}T${timeSlot}:00`).getTime() - offsetMin * 60000
+  const startAt = new Date(playMs).toISOString()
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations`, lisaToken, {
     reservation: {
