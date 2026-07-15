@@ -1,7 +1,7 @@
 import { useReservationsStore } from '@/stores/reservations'
 import { useSettingsStore } from '@/stores/settings'
 import { useMembersStore } from '@/stores/members'
-import { createReservation, validateReservation, getBookingProducts } from './knltb'
+import { createReservation, validateReservation, getBookingProducts, getReservations } from './knltb'
 
 const timers = {}
 const polls  = {}
@@ -9,13 +9,21 @@ const polls  = {}
 const POLL_INTERVAL_MS  = 2000
 const MAX_ATTEMPTS      = 150   // 5 minuten
 const TRIGGER_CHECK_MS  = 500   // fallback check elke 500ms voor browser throttling edge-cases
+const SYNC_INTERVAL_MS  = 60_000 // elke minuut sync met live KNLTB reserveringen
+
+let syncTimer = null
 
 /** Initialiseer bij opstarten — plant alle pending reserveringen in */
 export function initScheduler() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null }
+
   const store = useReservationsStore()
   store.reservations
     .filter(r => r.status === 'pending')
     .forEach(r => scheduleReservation(r))
+
+  syncReservations()
+  syncTimer = setInterval(syncReservations, SYNC_INTERVAL_MS)
 
   // Hercheck bij terugkeren naar tab (voorkomt gemiste triggers door browser throttling)
   document.addEventListener('visibilitychange', () => {
@@ -148,6 +156,7 @@ async function startPolling(id) {
         if (result.data?.id) {
           reservationsStore.addLog(id, `  Reservering ID: ${result.data.id}`)
         }
+        syncReservations()
       } else {
         const msg = JSON.stringify(result.data ?? 'geen details')
         reservationsStore.addLog(id, `→ Poging ${attempt}: HTTP ${result.status} — ${msg}`)
@@ -160,4 +169,50 @@ async function startPolling(id) {
   // Meteen de eerste poging doen — niet wachten op de eerste setInterval-tick.
   tryBook()
   polls[id] = setInterval(tryBook, POLL_INTERVAL_MS)
+}
+
+/** Zoek in live reserveringen of een lokale pending/active reservering al geboekt is. */
+async function syncReservations() {
+  const reservationsStore = useReservationsStore()
+  const settingsStore     = useSettingsStore()
+  const membersStore      = useMembersStore()
+
+  if (!settingsStore.lisaToken || !settingsStore.clubId) return
+
+  const ours = reservationsStore.reservations.filter(r => r.status === 'pending' || r.status === 'active')
+  if (ours.length === 0) return
+
+  try {
+    const res = await getReservations(settingsStore.clubId, settingsStore.lisaToken)
+    if (!res.ok) return
+
+    const list = res.data?.reservations ?? res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
+    const live = list.filter(r => r.start_at && new Date(r.start_at) >= new Date())
+
+    const ourNames = membersStore.members.map(m => m.name.toLowerCase().trim())
+
+    for (const local of ours) {
+      const refUtc = new Date(`${local.date}T12:00:00Z`)
+      const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
+      const offsetMin = Math.round((amsLocal - refUtc) / 60000)
+      const localStartMs = new Date(`${local.date}T${local.timeSlot}:00`).getTime() - offsetMin * 60000
+
+      const match = live.find(r => {
+        if (!r.start_at) return false
+        const sameTime = Math.abs(new Date(r.start_at).getTime() - localStartMs) < 60_000
+        const sameCourt = r.court_id === local.courtId || r.court?.id === local.courtId
+        const hasOurMember = (r.participants ?? r.club_members ?? r.members ?? [])
+          .some(p => {
+            const name = (p.full_name ?? p.name ?? '').toLowerCase().trim()
+            return ourNames.some(our => our === name || name.includes(our.split(' ')[0]) || our.includes(name.split(' ')[0]))
+          })
+        return sameTime && sameCourt && hasOurMember
+      })
+
+      if (match) {
+        reservationsStore.updateStatus(local.id, 'reserved')
+        reservationsStore.addLog(local.id, `✓ Opgeslagen als gereserveerd via KNLTB sync (ID: ${match.id})`)
+      }
+    }
+  } catch (_) {}
 }
