@@ -99,34 +99,49 @@ async function processReservation(reservation, settings, members, startedAt) {
 }
 
 export default async function handler(req, res) {
-  const secret = (req.headers['authorization'] || '').replace('Bearer ', '') || req.query.secret
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized' })
+  try {
+    const secret = (req.headers['authorization'] || '').replace('Bearer ', '') || req.query.secret
+    if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
+    const startedAt = Date.now()
+
+    const settings = await redis.get(SETTINGS_KEY)
+    if (!settings?.lisaToken || !settings?.clubId) {
+      return res.status(200).json({ skipped: 'Geen server-side instellingen gevonden — sla /instellingen op.' })
+    }
+
+    const [reservations, members] = await Promise.all([
+      redis.get(RES_KEY) ?? [],
+      redis.get(MEMBERS_KEY) ?? []
+    ])
+
+    const due = (reservations ?? []).filter(r =>
+      (r.status === 'pending' && (new Date(r.bookingTrigger).getTime() - Date.now()) <= LOOKAHEAD_MS) ||
+      r.status === 'active'
+    )
+
+    let processed = 0
+    for (const reservation of due) {
+      if (Date.now() - startedAt > BUDGET_MS) break
+      try {
+        await processReservation(reservation, settings, members ?? [], startedAt)
+      } catch (procErr) {
+        // Log de fout in de reservering zodat we het in de UI zien
+        const list = await redis.get(RES_KEY) ?? []
+        const idx = list.findIndex(r => r.id === reservation.id)
+        if (idx !== -1) {
+          list[idx].logs = [...(list[idx].logs ?? []), { time: new Date().toISOString(), message: `💥 [server] Crash: ${procErr.message}` }]
+          await redis.set(RES_KEY, list)
+        }
+      }
+      processed++
+    }
+
+    res.json({ checked: (reservations ?? []).length, due: due.length, processed })
+  } catch (err) {
+    console.error('Cron tick error:', err)
+    res.status(500).json({ error: err.message, stack: err.stack?.split('\n').slice(0, 5) })
   }
-
-  const startedAt = Date.now()
-
-  const settings = await redis.get(SETTINGS_KEY)
-  if (!settings?.lisaToken || !settings?.clubId) {
-    return res.status(200).json({ skipped: 'Geen server-side instellingen gevonden — sla /instellingen op.' })
-  }
-
-  const [reservations, members] = await Promise.all([
-    redis.get(RES_KEY) ?? [],
-    redis.get(MEMBERS_KEY) ?? []
-  ])
-
-  const due = (reservations ?? []).filter(r =>
-    (r.status === 'pending' && (new Date(r.bookingTrigger).getTime() - Date.now()) <= LOOKAHEAD_MS) ||
-    r.status === 'active'
-  )
-
-  let processed = 0
-  for (const reservation of due) {
-    if (Date.now() - startedAt > BUDGET_MS) break
-    await processReservation(reservation, settings, members ?? [], startedAt)
-    processed++
-  }
-
-  res.json({ checked: (reservations ?? []).length, due: due.length, processed })
 }
