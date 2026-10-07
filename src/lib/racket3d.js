@@ -7,10 +7,12 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  * extra hoeft te downloaden. 1 eenheid ≈ 100 mm.
  * ──────────────────────────────────────────────────────────── */
 
-const W = 1.38         // halve breedte van de kop
-const H = 1.35         // halve hoogte van de kop
-const THROAT = 0.62    // lengte hals
-const HANDLE = 1.0    // lengte handvat
+const RX = 1.3         // halve breedte van de kop (260 mm)
+const RY = 1.4         // halve hoogte van het ronde deel
+const CY = 0.1         // middelpunt van het ronde deel
+const NECK_Y = -2.05   // waar de hals in het handvat overgaat
+const NECK_W = 0.24    // halve breedte onderaan de hals
+const HANDLE = 1.0     // lengte handvat
 
 export const VARIANTS = {
   lime: { frame: '#cdff2e', frameRough: 0.28, frameMetal: 0.1, inlay: '#0a0f0c', grip: '#161b18', band: '#cdff2e' },
@@ -85,18 +87,33 @@ function feltBump() {
 
 /* ── Vormen ──────────────────────────────────────────────── */
 
-// Afgeronde druppelvorm: breed boven, smaller richting de hals.
-function headOutline(scale = 1, n = 120) {
-  const pts = []
-  for (let i = 0; i < n; i++) {
-    const t = (i / n) * Math.PI * 2
-    const cy = Math.cos(t), sx = Math.sin(t)
-    const taper = 0.8 + 0.2 * Math.pow(cy * 0.5 + 0.5, 0.85)
-    const x = W * Math.sign(sx) * Math.pow(Math.abs(sx), 0.9) * taper
-    const y = H * Math.sign(cy) * Math.pow(Math.abs(cy), 0.95)
-    pts.push(new THREE.Vector2(x * scale, y * scale))
+// Kop + hals als één druppel-silhouet: ellips bovenin, daarna rechte lijnen die
+// (zoals op echte rackets) in een V naar het handvat lopen.
+function tangentAngle() {
+  // punt op de ellips waar de raaklijn naar de halsrand (sign * NECK_W, NECK_Y) vertrekt
+  const sign = 1, nx = NECK_W, ny = NECK_Y
+  let best = 0, bestErr = Infinity
+  for (let i = 0; i <= 2000; i++) {
+    const th = -Math.PI / 2 + (sign * (i / 2000) * Math.PI / 2)   // onder → zijkant
+    const px = RX * Math.cos(th), py = CY + RY * Math.sin(th)
+    const tx = -RX * Math.sin(th), ty = RY * Math.cos(th)         // raakvector
+    const err = Math.abs((nx - px) * ty - (ny - py) * tx) / Math.hypot(tx, ty)
+    if (err < bestErr) { bestErr = err; best = th }
   }
-  return pts
+  return best
+}
+
+function headOutline(scale = 1, n = 140) {
+  const r = tangentAngle()
+  const pts = []
+  // ellipsboog van rechts-onder, over de bovenkant, naar links-onder
+  const start = r, end = Math.PI - r
+  for (let i = 0; i <= n; i++) {
+    const th = start + (end - start) * (i / n)
+    pts.push(new THREE.Vector2(RX * Math.cos(th), CY + RY * Math.sin(th)))
+  }
+  pts.push(new THREE.Vector2(-NECK_W, NECK_Y), new THREE.Vector2(NECK_W, NECK_Y))
+  return pts.map(p => new THREE.Vector2(p.x * scale, CY + (p.y - CY) * scale))
 }
 
 function insidePolygon(p, poly) {
@@ -108,20 +125,36 @@ function insidePolygon(p, poly) {
   return inside
 }
 
-// Perforaties in een zeshoekig raster, groter in het midden (sweet spot).
+// Driehoek met afgeronde hoeken (de grote uitsparing onder de kop)
+function roundedTriangle(apexY, baseY, half, r = 0.07) {
+  const P = [[0, apexY], [half, baseY], [-half, baseY]]
+  const path = new THREE.Path()
+  const mid = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+  const len = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
+  for (let i = 0; i < 3; i++) {
+    const prev = P[(i + 2) % 3], cur = P[i], next = P[(i + 1) % 3]
+    const a = mid(cur, prev, r / len(cur, prev)), b = mid(cur, next, r / len(cur, next))
+    if (i === 0) path.moveTo(a[0], a[1]); else path.lineTo(a[0], a[1])
+    path.quadraticCurveTo(cur[0], cur[1], b[0], b[1])
+  }
+  path.closePath()
+  return path
+}
+
+// Perforaties in een rooster, groter in het midden (sweet spot), zoals op de foto's
 function addPerforations(shape, inner) {
-  const dx = 0.2, dy = 0.173
-  for (let j = -7; j <= 7; j++) {
-    for (let i = -7; i <= 7; i++) {
+  const dx = 0.27, dy = 0.234
+  for (let j = -6; j <= 6; j++) {
+    for (let i = -6; i <= 6; i++) {
       const x = (i + (j % 2 ? 0.5 : 0)) * dx
-      const y = j * dy + 0.12
-      const nx = x / (W * 0.74), ny = (y - 0.1) / (H * 0.8)
+      const y = CY + 0.15 + j * dy
+      if (y < -0.5) continue                           // onder de driehoek-zone geen gaten
+      const nx = x / (RX * 0.8), ny = (y - CY - 0.1) / (RY * 0.82)
       const d = nx * nx + ny * ny
       if (d > 1) continue
       if (!insidePolygon(new THREE.Vector2(x, y), inner)) continue
-      const r = 0.06 - d * 0.02
       const hole = new THREE.Path()
-      hole.absarc(x, y, r, 0, Math.PI * 2, true)
+      hole.absarc(x, y, 0.078 - d * 0.03, 0, Math.PI * 2, true)
       shape.holes.push(hole)
     }
   }
@@ -133,31 +166,14 @@ function ringShape(outerScale, innerScale) {
   return s
 }
 
-function throatShape() {
-  const top = -H + 0.15
-  const bot = -H - THROAT
-  const s = new THREE.Shape()
-  s.moveTo(-0.58, top)
-  s.quadraticCurveTo(-0.42, bot + 0.3, -0.18, bot)
-  s.lineTo(0.18, bot)
-  s.quadraticCurveTo(0.42, bot + 0.3, 0.58, top)
-  s.lineTo(-0.58, top)
-  const win = new THREE.Path()
-  win.moveTo(0, top - 0.14)
-  win.lineTo(-0.17, bot + 0.22)
-  win.lineTo(0.17, bot + 0.22)
-  win.lineTo(0, top - 0.14)
-  s.holes.push(win)
-  return s
-}
-
 /* ── Geometrie (één keer gebouwd, gedeeld door alle rackets) ─ */
 
 export function buildRacketGeometries() {
   const innerRing = headOutline(0.86)
 
-  const faceShape = new THREE.Shape(headOutline(0.95))
+  const faceShape = new THREE.Shape(headOutline(0.9))
   addPerforations(faceShape, innerRing)
+  faceShape.holes.push(roundedTriangle(CY - 0.82, CY - 1.6, 0.42, 0.08))
 
   // Een padelracket is één vlakke plaat (±38 mm): de gekleurde rand ligt gelijk met het
   // vlak, geen opstaande buis zoals bij tennis.
@@ -165,33 +181,27 @@ export function buildRacketGeometries() {
   const face = new THREE.ExtrudeGeometry(faceShape, { depth: T, bevelEnabled: false, curveSegments: 14 })
   face.translate(0, 0, -T / 2)
 
-  const frame = new THREE.ExtrudeGeometry(ringShape(1, 0.9), {
+  const frame = new THREE.ExtrudeGeometry(ringShape(1, 0.86), {
     depth: T - 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.035, bevelSegments: 4, curveSegments: 24,
   })
   frame.translate(0, 0, -(T - 0.08) / 2)
 
   // dunne accentlijn op de rand, óók gelijk met het vlak
-  const inlay = new THREE.ExtrudeGeometry(ringShape(0.9, 0.885), { depth: T + 0.004, bevelEnabled: false, curveSegments: 24 })
+  const inlay = new THREE.ExtrudeGeometry(ringShape(0.88, 0.865), { depth: T + 0.004, bevelEnabled: false, curveSegments: 24 })
   inlay.translate(0, 0, -(T + 0.004) / 2)
 
-  const throat = new THREE.ExtrudeGeometry(throatShape(), { depth: T - 0.1, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.035, bevelSegments: 4, curveSegments: 16 })
-  throat.translate(0, 0, -(T - 0.1) / 2)
-
-  const handleTop = -H - THROAT
-  const handle = new THREE.CylinderGeometry(0.215, 0.2, HANDLE, 8, 1)
+  const handleTop = NECK_Y
+  const handle = new THREE.BoxGeometry(0.46, HANDLE, 0.3, 1, 1, 1)
   handle.translate(0, handleTop - HANDLE / 2 + 0.02, 0)
-  handle.scale(1, 1, 0.74)
 
-  const band = new THREE.CylinderGeometry(0.205, 0.205, 0.07, 8)
-  band.scale(1, 1, 0.76)
+  const band = new THREE.BoxGeometry(0.475, 0.07, 0.32)
 
-  const pommel = new THREE.CylinderGeometry(0.215, 0.2, 0.11, 8)
-  pommel.scale(1, 1, 0.78)
+  const pommel = new THREE.BoxGeometry(0.5, 0.11, 0.34)
   pommel.translate(0, handleTop - HANDLE - 0.03, 0)
 
   const lanyard = new THREE.TorusGeometry(0.1, 0.014, 10, 40)
 
-  return { face, frame, inlay, throat, handle, band, pommel, lanyard, handleTop }
+  return { face, frame, inlay, handle, band, pommel, lanyard, handleTop }
 }
 
 export function buildMaterials(variantKey) {
@@ -224,7 +234,6 @@ export function makeRacket(geo, mats) {
   add(geo.face, mats.face)
   add(geo.frame, mats.frame)
   add(geo.inlay, mats.inlay)
-  add(geo.throat, mats.frame)
   add(geo.handle, mats.grip)
   add(geo.pommel, mats.frame)
 
@@ -236,7 +245,8 @@ export function makeRacket(geo, mats) {
 
   // Pivot ongeveer in het zwaartepunt: kop + hals.
   const wrap = new THREE.Group()
-  g.position.y = 1.0
+  const box = new THREE.Box3().setFromObject(g)
+  g.position.y = -(box.min.y + box.max.y) / 2
   wrap.add(g)
   return wrap
 }
