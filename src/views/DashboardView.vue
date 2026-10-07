@@ -66,10 +66,10 @@ const steps = [
 
 // ── 3D-scène ───────────────────────────────────────────────────
 const heroEl = ref(null)
-const heroProgress = ref(0)
+const heroScene = ref(null)
 const showcaseEl = ref(null)
-const showcaseProgress = ref(0)
-const activeStep = computed(() => Math.min(2, Math.floor(showcaseProgress.value * 3)))
+const showcaseScene = ref(null)
+const activeStep = ref(0)   // alleen bijwerken als de stap wisselt
 const heroFallback = ref(false)
 
 let ctx = null
@@ -79,11 +79,15 @@ onMounted(() => {
   ctx = gsap.context(() => {
     ScrollTrigger.create({
       trigger: heroEl.value, start: 'top top', end: 'bottom top', scrub: true,
-      onUpdate: self => { heroProgress.value = self.progress },
+      onUpdate: self => heroScene.value?.setProgress(self.progress),
     })
     ScrollTrigger.create({
       trigger: showcaseEl.value, start: 'top top', end: 'bottom bottom', scrub: true,
-      onUpdate: self => { showcaseProgress.value = self.progress },
+      onUpdate: self => {
+        showcaseScene.value?.setProgress(self.progress)
+        const step = Math.min(2, Math.floor(self.progress * 3))
+        if (step !== activeStep.value) activeStep.value = step
+      },
     })
 
     // Hero-tekst schuift iets sneller weg dan de pagina (parallax)
@@ -140,8 +144,8 @@ onBeforeUnmount(() => {
 
       <!-- 3D rackets (mobiel: eigen vak boven de tekst) -->
       <div class="absolute inset-x-0 top-0 h-[46svh] lg:inset-0 lg:h-auto">
-        <RacketScene v-if="!heroFallback" mode="hero" :progress="heroProgress" @fallback="heroFallback = true" />
-        <img v-else src="/logo.webp" alt="" class="absolute right-[10%] top-1/2 aspect-square h-[40vh] -translate-y-1/2 rounded-full object-cover opacity-80 lg:h-[52vh]" />
+        <RacketScene v-if="!heroFallback" ref="heroScene" mode="hero" @fallback="heroFallback = true" />
+        <img v-else src="/logo.svg" alt="" class="absolute right-[10%] top-1/2 aspect-square h-[40vh] -translate-y-1/2 opacity-90 lg:h-[52vh]" />
       </div>
 
       <!-- tekst -->
@@ -175,7 +179,7 @@ onBeforeUnmount(() => {
             { k: 'Actief', v: stats.active, c: 'text-sky' },
             { k: 'Gereserveerd', v: stats.reserved, c: 'text-lime' },
             { k: 'Leden', v: stats.members, c: 'text-fog' },
-          ]" :key="s.k" data-reveal class="bg-ink/80 px-5 py-4 backdrop-blur-md">
+          ]" :key="s.k" data-reveal class="bg-ink/85 px-5 py-4">
             <dt class="eyebrow">{{ s.k }}</dt>
             <dd class="display mt-1 text-5xl tabular" :class="s.c">{{ s.v }}</dd>
           </div>
@@ -204,7 +208,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="absolute inset-x-0 top-0 h-[52%] lg:inset-0 lg:left-[30%] lg:h-auto">
-          <RacketScene v-if="!heroFallback" mode="showcase" :progress="showcaseProgress" :interactive="false" />
+          <RacketScene v-if="!heroFallback" ref="showcaseScene" mode="showcase" :interactive="false" />
         </div>
 
         <div class="relative z-10 mx-auto w-full max-w-6xl">

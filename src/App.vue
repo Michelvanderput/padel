@@ -101,7 +101,7 @@ onBeforeUnmount(() => {
     <div class="pointer-events-none fixed inset-x-0 top-0 z-40 h-28 bg-gradient-to-b from-ink/90 via-ink/50 to-transparent" aria-hidden="true"></div>
     <header class="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-4 pt-4 sm:px-8 sm:pt-6">
       <RouterLink to="/" class="pointer-events-auto flex items-center gap-3 rounded-full" aria-label="Padel Maatjes, naar home">
-        <img src="/logo.webp" alt="" width="40" height="40" class="h-10 w-10 rounded-full bg-white object-cover ring-1 ring-white/20" />
+        <img src="/logo.svg" alt="" width="40" height="40" class="h-10 w-10 rounded-full" />
         <span class="hidden leading-none sm:block">
           <span class="display block text-[1.15rem] text-fog">Padel Maatjes</span>
           <span class="eyebrow mt-1 block">Ready Maastricht</span>
@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
       <nav
         ref="pillNav"
         aria-label="Hoofdnavigatie"
-        class="pointer-events-auto absolute left-1/2 hidden -translate-x-1/2 items-center rounded-full border border-line bg-ink/60 p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.8)] backdrop-blur-xl lg:flex"
+        class="pointer-events-auto absolute left-1/2 hidden -translate-x-1/2 items-center rounded-full border border-line bg-ink/60 p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.8)] backdrop-blur-md lg:flex"
       >
         <span
           class="absolute bottom-1.5 left-0 top-1.5 rounded-full bg-lime transition-[transform,width,opacity] duration-500 ease-out-expo"
@@ -137,7 +137,7 @@ onBeforeUnmount(() => {
       <!-- Status -->
       <RouterLink
         to="/instellingen"
-        class="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-ink/60 px-3.5 py-2 backdrop-blur-xl"
+        class="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-ink/60 px-3.5 py-2 backdrop-blur-md"
       >
         <span class="relative flex h-2 w-2">
           <span v-if="settingsStore.isConfigured" class="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-lime"></span>
@@ -160,7 +160,7 @@ onBeforeUnmount(() => {
     <!-- ── Mobiele tabbalk ── -->
     <nav
       aria-label="Hoofdnavigatie"
-      class="fixed inset-x-3 bottom-3 z-50 flex rounded-full border border-line bg-ink/75 p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:hidden"
+      class="fixed inset-x-3 bottom-3 z-50 flex rounded-full border border-line bg-ink/75 p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-md lg:hidden"
       style="padding-bottom: max(0.375rem, env(safe-area-inset-bottom))"
     >
       <RouterLink

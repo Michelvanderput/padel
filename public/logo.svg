@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Padel Maatjes">
+  <circle cx="60" cy="60" r="60" fill="#cdff2e"/>
+  <!-- racket: platte teardrop-plaat met perforaties, schuin als in een smash -->
+  <g transform="rotate(35 60 60)" fill="#060907">
+    <path d="M60 18c15 0 27 11.500 27 27 0 11-6 20-14 27l-4 9h-18l-4-9c-8-7-14-16-14-27 0-15.500 12-27 27-27z"/>
+    <rect x="54" y="80" width="12" height="28" rx="5"/>
+    <g fill="#cdff2e">
+      <circle cx="60" cy="34" r="2.300"/><circle cx="51" cy="39" r="2.300"/><circle cx="69" cy="39" r="2.300"/>
+      <circle cx="42.500" cy="45" r="2.300"/><circle cx="60" cy="45" r="2.300"/><circle cx="77.500" cy="45" r="2.300"/>
+      <circle cx="51" cy="51" r="2.300"/><circle cx="69" cy="51" r="2.300"/>
+      <circle cx="42.500" cy="57" r="2.300"/><circle cx="60" cy="57" r="2.300"/><circle cx="77.500" cy="57" r="2.300"/>
+      <circle cx="51" cy="63" r="2.300"/><circle cx="69" cy="63" r="2.300"/>
+      <circle cx="60" cy="69" r="2.300"/>
+    </g>
+  </g>
+  <!-- bal -->
+  <circle cx="91" cy="91" r="13" fill="#060907"/>
+  <path d="M82 84c5 4 5 12 0 16M100 82c-5 4-5 12 0 16" fill="none" stroke="#cdff2e" stroke-width="2.200" stroke-linecap="round"/>
+</svg>

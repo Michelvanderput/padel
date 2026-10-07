@@ -1,11 +1,10 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { prefersReducedMotion, hasFinePointer } from '@/lib/motion'
 import { introReady } from '@/lib/intro'
 
 const props = defineProps({
   mode:        { type: String,  default: 'hero' },   // 'hero' | 'showcase'
-  progress:    { type: Number,  default: 0 },        // 0..1, door de pagina gestuurd
   interactive: { type: Boolean, default: true },     // rackets volgen de muis
 })
 const emit = defineEmits(['ready', 'fallback'])
@@ -15,6 +14,7 @@ const canvas = ref(null)
 const shown  = ref(false)   // canvas faadt in zodra het eerste frame staat
 
 let scene = null
+let pendingProgress = 0   // voortgang kan binnenkomen voordat de scène klaar is
 let raf = 0
 let last = 0
 let onScreen = true
@@ -73,7 +73,7 @@ onMounted(async () => {
   io = new IntersectionObserver(([entry]) => { onScreen = entry.isIntersecting })
   io.observe(host.value)
 
-  scene.setProgress(props.progress)
+  scene.setProgress(pendingProgress)
 
   if (reduced) {
     renderOnce()
@@ -85,11 +85,14 @@ onMounted(async () => {
   emit('ready')
 })
 
-watch(() => props.progress, v => {
+// Scrollvoortgang gaat rechtstreeks naar de scène (geen Vue-reactiviteit = geen herrender per scrollstap)
+function setProgress(v) {
+  pendingProgress = v
   if (!scene) return
   scene.setProgress(v)
   if (reduced) renderOnce()
-})
+}
+defineExpose({ setProgress })
 
 onBeforeUnmount(() => {
   disposed = true

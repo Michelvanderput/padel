@@ -282,7 +282,7 @@ const lerp = (a, b, t) => a + (b - a) * t
  */
 export async function createRacketScene(canvas, { mode = 'hero', reduced = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mode === 'hero' ? 1.5 : 1.25))
   renderer.setClearColor(0x000000, 0)
   renderer.toneMapping = THREE.NeutralToneMapping   // behoudt de lime i.p.v. hem uit te bleken
   renderer.toneMappingExposure = 0.95
@@ -346,7 +346,7 @@ export async function createRacketScene(canvas, { mode = 'hero', reduced = false
     addBall({ r: 0.32, depth: 1, orbit: 0 })
   }
 
-  const state = { w: 1, h: 1, aspect: 1, progress: 0, px: 0, py: 0, tx: 0, ty: 0, time: 0 }
+  const state = { w: 1, h: 1, aspect: 1, progress: 0, target: 0, px: 0, py: 0, tx: 0, ty: 0, time: 0 }
 
   function layout() {
     const wide = state.aspect >= 1.25   // anders 'compact': (bijna) vierkant vak, bv. de mobiele hero
@@ -387,6 +387,8 @@ export async function createRacketScene(canvas, { mode = 'hero', reduced = false
   function update(dt) {
     state.time += dt
     const t = state.time
+    // Scrollvoortgang gedempt volgen: verbergt haperingen van Lenis/ScrollTrigger
+    state.progress = reduced ? state.target : lerp(state.progress, state.target, 1 - Math.pow(0.0005, dt))
     const p = state.progress
     const k = reduced ? 0 : 1
 
@@ -465,7 +467,7 @@ export async function createRacketScene(canvas, { mode = 'hero', reduced = false
 
   return {
     resize, update, render, dispose,
-    setProgress: v => { state.progress = clamp(v, 0, 1) },
+    setProgress: v => { state.target = clamp(v, 0, 1) },
     setPointer: (x, y) => { state.tx = clamp(x, -1, 1); state.ty = clamp(y, -1, 1) },
   }
 }
