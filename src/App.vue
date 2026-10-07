@@ -37,7 +37,7 @@ if (!showIntro.value) finishIntro()
 function onIntroDone() {
   try { sessionStorage.setItem('pm-intro', '1') } catch (_) {}
   showIntro.value = false
-  finishIntro()
+  finishIntro()   // vangnet: ook als 'reveal' nooit kwam
 }
 
 // ── Actieve pil in de navigatie ────────────────────────────────
@@ -91,7 +91,7 @@ onBeforeUnmount(() => {
   <div class="relative min-h-screen overflow-x-clip bg-ink">
     <a href="#main" class="sr-only z-[110] rounded-full bg-lime px-4 py-2 font-semibold text-ink focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Naar de inhoud</a>
 
-    <Preloader v-if="showIntro" @done="onIntroDone" />
+    <Preloader v-if="showIntro" @reveal="finishIntro" @done="onIntroDone" />
     <CursorFollower />
 
     <!-- Paginawissel-gordijn -->

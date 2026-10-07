@@ -51,13 +51,6 @@ function formatTrigger(iso) {
   return new Date(iso).toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-const photos = [
-  { src: '/photos/padel-1.webp', alt: 'Padel actie bij het net',  cls: 'lg:col-span-5 lg:mt-0' },
-  { src: '/photos/padel-2.webp', alt: 'Smash boven het net',      cls: 'lg:col-span-3 lg:mt-24' },
-  { src: '/photos/padel-5.webp', alt: 'Kampioenen met beker',     cls: 'lg:col-span-4 lg:mt-8' },
-  { src: '/photos/padel-4.webp', alt: 'Vier spelers in actie',    cls: 'lg:col-span-5 lg:col-start-4 lg:-mt-6' },
-]
-
 const steps = [
   { n: '01', title: 'Kies je baan', text: 'Datum, tijdslot en vier maatjes. Beschikbaarheid komt live uit het KNLTB-systeem.' },
   { n: '02', title: 'Wij tellen af', text: 'Precies 72 uur (min twee minuten) voor de speeltijd gaat de wachtrij af. Ook als jouw tab dicht staat.' },
@@ -109,17 +102,10 @@ onMounted(() => {
     }
     gsap.ticker.add(marqueeTick)
 
-    // Foto's: clip-path reveal + parallax
-    root.value.querySelectorAll('[data-photo]').forEach(el => {
-      const img = el.querySelector('img')
-      gsap.fromTo(el, { clipPath: 'inset(14% 14% 14% 14% round 28px)' }, {
-        clipPath: 'inset(0% 0% 0% 0% round 28px)', ease: 'none',
-        scrollTrigger: { trigger: el, start: 'top 95%', end: 'top 45%', scrub: true },
-      })
-      gsap.fromTo(img, { yPercent: -8, scale: 1.18 }, {
-        yPercent: 8, scale: 1.18, ease: 'none',
-        scrollTrigger: { trigger: el, start: 'top bottom', end: 'bottom top', scrub: true },
-      })
+    // Baan: lijnen tekenen zichzelf terwijl je scrolt
+    gsap.from(root.value.querySelectorAll('[data-court] .court-line'), {
+      drawSVG: '0%', ease: 'none', stagger: 0.18,
+      scrollTrigger: { trigger: root.value.querySelector('[data-court]'), start: 'top 85%', end: 'bottom 50%', scrub: true },
     })
   }, root.value)
 })
@@ -303,17 +289,24 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <!-- ══ GALERIJ ═══════════════════════════════════════════ -->
-    <section class="mx-auto max-w-6xl px-4 pb-24 sm:px-8">
-      <p data-reveal class="eyebrow eyebrow-lime mb-3">De maatjes</p>
-      <h2 data-split class="display title-lg mb-12 text-fog">Zo ziet<br />het eruit.</h2>
+    <!-- ══ BANEN ═════════════════════════════════════════════ -->
+    <section class="mx-auto max-w-6xl px-4 pb-24 sm:px-8" aria-labelledby="courts-title">
+      <p data-reveal class="eyebrow eyebrow-lime mb-3">Ready Maastricht</p>
+      <h2 id="courts-title" data-split class="display title-lg mb-12 text-fog">{{ courtsStore.courts.length }} banen,<br />één knop.</h2>
 
-      <div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-9">
-        <figure v-for="(p, i) in photos" :key="i" data-photo class="group relative aspect-[6/7] overflow-hidden rounded-[28px] bg-ink-700 lg:col-span-3" :class="p.cls">
-          <img :src="p.src" :alt="p.alt" loading="lazy" width="800" height="933" class="h-full w-full object-cover" />
-          <div class="absolute inset-0 bg-gradient-to-t from-ink/60 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100"></div>
-          <figcaption class="eyebrow absolute bottom-4 left-4 translate-y-2 !text-fog opacity-0 transition-all duration-500 ease-out-expo group-hover:translate-y-0 group-hover:opacity-100">{{ p.alt }}</figcaption>
-        </figure>
+      <div class="grid items-center gap-10 lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-16">
+        <CourtLines data-court class="mx-auto h-[26rem] text-lime/80 lg:h-[30rem]" :stroke-width="1.2" />
+
+        <ul data-reveal-group class="divide-y divide-line border-y border-line">
+          <li v-for="court in courtsStore.courts" :key="court.id" data-reveal>
+            <RouterLink :to="{ path: '/nieuw', query: { court: court.id } }" class="group flex items-center gap-5 py-5 transition-colors duration-300 hover:bg-white/[0.03] sm:px-3">
+              <span class="display w-20 flex-shrink-0 text-5xl text-outline tabular transition-colors duration-300 group-hover:text-lime">{{ court.number }}</span>
+              <span class="flex-1 text-lg font-semibold text-fog">{{ court.name.replace('Padelbaan ', '') }}</span>
+              <span class="eyebrow hidden sm:block">Reserveer</span>
+              <ArrowUpRight class="h-5 w-5 text-mist transition-all duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-lime" />
+            </RouterLink>
+          </li>
+        </ul>
       </div>
     </section>
 

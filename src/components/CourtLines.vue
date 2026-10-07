@@ -12,5 +12,6 @@ defineProps({ strokeWidth: { type: Number, default: 1.4 } })
     <line class="court-line" x1="0" y1="30.5" x2="100" y2="30.5" />
     <line class="court-line" x1="0" y1="169.5" x2="100" y2="169.5" />
     <line class="court-line" x1="50" y1="30.5" x2="50" y2="169.5" />
+    <slot />
   </svg>
 </template>
