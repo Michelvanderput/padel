@@ -156,21 +156,26 @@ function throatShape() {
 export function buildRacketGeometries() {
   const innerRing = headOutline(0.86)
 
-  const faceShape = new THREE.Shape(headOutline(0.93))
+  const faceShape = new THREE.Shape(headOutline(0.95))
   addPerforations(faceShape, innerRing)
 
-  const face = new THREE.ExtrudeGeometry(faceShape, { depth: 0.2, bevelEnabled: false, curveSegments: 14 })
-  face.translate(0, 0, -0.1)
+  // Een padelracket is één vlakke plaat (±38 mm): de gekleurde rand ligt gelijk met het
+  // vlak, geen opstaande buis zoals bij tennis.
+  const T = 0.38
+  const face = new THREE.ExtrudeGeometry(faceShape, { depth: T, bevelEnabled: false, curveSegments: 14 })
+  face.translate(0, 0, -T / 2)
 
-  const bevel = { bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.05, bevelSegments: 5, curveSegments: 24 }
-  const frame = new THREE.ExtrudeGeometry(ringShape(1, 0.86), { depth: 0.26, ...bevel })
-  frame.translate(0, 0, -0.13)
+  const frame = new THREE.ExtrudeGeometry(ringShape(1, 0.9), {
+    depth: T - 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.035, bevelSegments: 4, curveSegments: 24,
+  })
+  frame.translate(0, 0, -(T - 0.08) / 2)
 
-  const inlay = new THREE.ExtrudeGeometry(ringShape(0.935, 0.9), { depth: 0.43, bevelEnabled: false, curveSegments: 24 })
-  inlay.translate(0, 0, -0.215)
+  // dunne accentlijn op de rand, óók gelijk met het vlak
+  const inlay = new THREE.ExtrudeGeometry(ringShape(0.9, 0.885), { depth: T + 0.004, bevelEnabled: false, curveSegments: 24 })
+  inlay.translate(0, 0, -(T + 0.004) / 2)
 
-  const throat = new THREE.ExtrudeGeometry(throatShape(), { depth: 0.24, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.04, bevelSegments: 4, curveSegments: 16 })
-  throat.translate(0, 0, -0.12)
+  const throat = new THREE.ExtrudeGeometry(throatShape(), { depth: T - 0.1, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.035, bevelSegments: 4, curveSegments: 16 })
+  throat.translate(0, 0, -(T - 0.1) / 2)
 
   const handleTop = -H - THROAT
   const handle = new THREE.CylinderGeometry(0.2, 0.185, HANDLE, 8, 1)
