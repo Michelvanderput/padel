@@ -1,25 +1,70 @@
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
-import { RouterView, RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, Users, PlusCircle, ListOrdered, Settings, AlertTriangle } from '@lucide/vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
+import { LayoutDashboard, Users, PlusCircle, ListOrdered, Settings } from '@lucide/vue'
 import { initScheduler } from '@/services/scheduler'
 import { useSettingsStore } from '@/stores/settings'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { useCourtsStore } from '@/stores/courts'
+import { prefersReducedMotion } from '@/lib/motion'
+import { installPageTransition } from '@/lib/pageTransition'
+import { finishIntro } from '@/lib/intro'
+import { startSmoothScroll, stopSmoothScroll } from '@/composables/useSmoothScroll'
+import Preloader from '@/components/Preloader.vue'
+import CursorFollower from '@/components/CursorFollower.vue'
 
 const route = useRoute()
+const router = useRouter()
 const settingsStore = useSettingsStore()
 
 const navLinks = [
-  { to: '/',             label: 'Dashboard',          shortLabel: 'Home',     icon: LayoutDashboard },
-  { to: '/leden',        label: 'Leden',              shortLabel: 'Leden',    icon: Users },
-  { to: '/nieuw',        label: 'Nieuwe reservering', shortLabel: 'Nieuw',    icon: PlusCircle },
-  { to: '/wachtrij',     label: 'Wachtrij',      shortLabel: 'Wachtrij', icon: ListOrdered },
-  { to: '/instellingen', label: 'Instellingen',  shortLabel: 'Config',   icon: Settings },
+  { to: '/',             label: 'Home',      icon: LayoutDashboard },
+  { to: '/leden',        label: 'Leden',     icon: Users },
+  { to: '/nieuw',        label: 'Nieuw',     icon: PlusCircle },
+  { to: '/wachtrij',     label: 'Wachtrij',  icon: ListOrdered },
+  { to: '/instellingen', label: 'Config',    icon: Settings },
 ]
 
+// ── Preloader: alleen de eerste keer per sessie ────────────────
+function shouldPlayIntro() {
+  if (prefersReducedMotion()) return false
+  try { return !sessionStorage.getItem('pm-intro') } catch (_) { return true }
+}
+const showIntro = ref(shouldPlayIntro())
+if (!showIntro.value) finishIntro()
+
+function onIntroDone() {
+  try { sessionStorage.setItem('pm-intro', '1') } catch (_) {}
+  showIntro.value = false
+  finishIntro()
+}
+
+// ── Actieve pil in de navigatie ────────────────────────────────
+const pillNav = ref(null)
+const pill = ref({ x: 0, w: 0, show: false })
+
+function movePill() {
+  const el = pillNav.value?.querySelector('[data-active="true"]')
+  if (!el) { pill.value = { ...pill.value, show: false }; return }
+  pill.value = { x: el.offsetLeft, w: el.offsetWidth, show: true }
+}
+watch(() => route.path, () => nextTick(movePill))
+
+// ── Paginawissel: limoenen gordijn (zie lib/pageTransition.js) ─
+const curtain = ref(null)
+let removePageTransition = () => {}
+
+// ── Data + scheduler (ongewijzigd) ─────────────────────────────
+let refreshInterval = null
+
 onMounted(async () => {
+  startSmoothScroll()
+  removePageTransition = installPageTransition(router, curtain.value)
+  document.fonts?.ready.then(() => nextTick(movePill))
+  window.addEventListener('resize', movePill)
+  nextTick(movePill)
+
   const reservationsStore = useReservationsStore()
   const membersStore = useMembersStore()
   const courtsStore = useCourtsStore()
@@ -31,98 +76,105 @@ onMounted(async () => {
 
   // Server-side cron-worker kan reserveringen boeken zonder dat deze tab open staat —
   // periodiek verversen zorgt dat de UI die wijzigingen (bijna) live laat zien.
-  const refreshInterval = setInterval(() => reservationsStore.init(), 10_000)
-  onUnmounted(() => clearInterval(refreshInterval))
+  refreshInterval = setInterval(() => reservationsStore.init(), 10_000)
+})
+
+onBeforeUnmount(() => {
+  clearInterval(refreshInterval)
+  removePageTransition()
+  window.removeEventListener('resize', movePill)
+  stopSmoothScroll()
 })
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 flex">
+  <div class="relative min-h-screen overflow-x-clip bg-ink">
+    <a href="#main" class="sr-only z-[110] rounded-full bg-lime px-4 py-2 font-semibold text-ink focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Naar de inhoud</a>
 
-    <!-- ── Sidebar ── -->
-    <aside class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-slate-900 z-20">
+    <Preloader v-if="showIntro" @done="onIntroDone" />
+    <CursorFollower />
 
-      <!-- Logo -->
-      <div class="flex flex-col items-center px-6 py-6 gap-3">
-        <img src="/logo.png" alt="Padel Maatjes" class="w-20 h-20 rounded-full object-cover bg-white shadow-lg ring-2 ring-white/10" />
-        <div class="text-center">
-          <p class="font-bold text-white text-sm leading-tight tracking-wide">Padel Maatjes</p>
-          <p class="text-xs text-slate-400 leading-tight">Ready Maastricht</p>
-        </div>
-      </div>
+    <!-- Paginawissel-gordijn -->
+    <div ref="curtain" class="pointer-events-none invisible fixed inset-0 z-[85] bg-lime" aria-hidden="true"></div>
 
-      <!-- Divider -->
-      <div class="mx-6 h-px bg-slate-700/60 mb-3"></div>
+    <!-- ── Topbalk ── -->
+    <div class="pointer-events-none fixed inset-x-0 top-0 z-40 h-28 bg-gradient-to-b from-ink/90 via-ink/50 to-transparent" aria-hidden="true"></div>
+    <header class="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-4 pt-4 sm:px-8 sm:pt-6">
+      <RouterLink to="/" class="pointer-events-auto flex items-center gap-3 rounded-full" aria-label="Padel Maatjes, naar home">
+        <img src="/logo.webp" alt="" width="40" height="40" class="h-10 w-10 rounded-full bg-white object-cover ring-1 ring-white/20" />
+        <span class="hidden leading-none sm:block">
+          <span class="display block text-[1.15rem] text-fog">Padel Maatjes</span>
+          <span class="eyebrow mt-1 block">Ready Maastricht</span>
+        </span>
+      </RouterLink>
 
-      <!-- Nav -->
-      <nav class="flex-1 px-3 space-y-0.5">
+      <!-- Zwevende pil-navigatie (desktop) -->
+      <nav
+        ref="pillNav"
+        aria-label="Hoofdnavigatie"
+        class="pointer-events-auto absolute left-1/2 hidden -translate-x-1/2 items-center rounded-full border border-line bg-ink/60 p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.8)] backdrop-blur-xl lg:flex"
+      >
+        <span
+          class="absolute bottom-1.5 left-0 top-1.5 rounded-full bg-lime transition-[transform,width,opacity] duration-500 ease-out-expo"
+          :class="pill.show ? 'opacity-100' : 'opacity-0'"
+          :style="{ width: pill.w + 'px', transform: `translateX(${pill.x}px)` }"
+          aria-hidden="true"
+        ></span>
         <RouterLink
           v-for="link in navLinks"
           :key="link.to"
           :to="link.to"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group"
-          :class="route.path === link.to
-            ? 'bg-green-500/15 text-green-400 shadow-sm'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'"
+          :data-active="route.path === link.to"
+          :aria-current="route.path === link.to ? 'page' : undefined"
+          class="relative z-10 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors duration-300"
+          :class="route.path === link.to ? 'text-ink' : 'text-mist hover:text-fog'"
         >
-          <component
-            :is="link.icon"
-            class="w-4.5 h-4.5 flex-shrink-0 transition-colors"
-            :class="route.path === link.to ? 'text-green-400' : 'text-slate-500 group-hover:text-slate-300'"
-          />
           {{ link.label }}
-          <span
-            v-if="link.to === '/instellingen' && !settingsStore.isConfigured"
-            class="ml-auto w-2 h-2 rounded-full bg-amber-400"
-          ></span>
+          <span v-if="link.to === '/instellingen' && !settingsStore.isConfigured" class="h-1.5 w-1.5 rounded-full bg-amber" aria-label="Token niet ingesteld"></span>
         </RouterLink>
       </nav>
 
-      <!-- Footer -->
-      <div class="mx-6 my-6 p-3 rounded-xl bg-slate-800/60 border border-slate-700/40">
-        <p class="text-xs text-slate-400 font-medium">v0.1.0</p>
-        <div v-if="!settingsStore.isConfigured" class="flex items-center gap-1.5 mt-1.5">
-          <AlertTriangle class="w-3 h-3 text-amber-400 flex-shrink-0" />
-          <p class="text-xs text-amber-400">Token niet ingesteld</p>
-        </div>
-        <div v-else class="flex items-center gap-1.5 mt-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>
-          <p class="text-xs text-green-400">Geconfigureerd</p>
-        </div>
-      </div>
-    </aside>
+      <!-- Status -->
+      <RouterLink
+        to="/instellingen"
+        class="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-ink/60 px-3.5 py-2 backdrop-blur-xl"
+      >
+        <span class="relative flex h-2 w-2">
+          <span v-if="settingsStore.isConfigured" class="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-lime"></span>
+          <span class="relative inline-flex h-2 w-2 rounded-full" :class="settingsStore.isConfigured ? 'bg-lime' : 'bg-amber'"></span>
+        </span>
+        <span class="eyebrow !text-fog">{{ settingsStore.isConfigured ? 'Live' : 'Token mist' }}</span>
+      </RouterLink>
+    </header>
 
-    <!-- ── Main ── -->
-    <div class="flex-1 flex flex-col lg:ml-64 min-h-screen">
+    <!-- ── Pagina ── -->
+    <main id="main" class="relative">
+      <RouterView />
+    </main>
 
-      <!-- Mobile header -->
-      <header class="lg:hidden bg-slate-900 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
-        <img src="/logo.png" alt="Padel Maatjes" class="w-8 h-8 rounded-full object-cover bg-white" />
-        <p class="font-bold text-white">Padel Maatjes</p>
-        <div v-if="!settingsStore.isConfigured" class="ml-auto flex items-center gap-1.5">
-          <AlertTriangle class="w-4 h-4 text-amber-400" />
-        </div>
-      </header>
+    <footer class="relative mx-auto flex max-w-6xl flex-col items-start justify-between gap-2 px-4 pb-32 pt-10 text-mist sm:px-8 lg:flex-row lg:items-center lg:pb-10">
+      <p class="eyebrow">Padel Maatjes · Ready Maastricht</p>
+      <p class="eyebrow">Boekt 72 uur vooruit — op de milliseconde</p>
+    </footer>
 
-      <!-- Page -->
-      <main class="flex-1 p-4 lg:p-8 pb-24 lg:pb-8">
-        <RouterView />
-      </main>
-
-      <!-- Mobile bottom nav -->
-      <nav class="lg:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 flex">
-        <RouterLink
-          v-for="link in navLinks"
-          :key="link.to"
-          :to="link.to"
-          class="flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors relative"
-          :class="route.path === link.to ? 'text-green-400' : 'text-slate-500'"
-        >
-          <component :is="link.icon" class="w-5 h-5" />
-          {{ link.shortLabel }}
-          <span v-if="route.path === link.to" class="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-green-400"></span>
-        </RouterLink>
-      </nav>
-    </div>
+    <!-- ── Mobiele tabbalk ── -->
+    <nav
+      aria-label="Hoofdnavigatie"
+      class="fixed inset-x-3 bottom-3 z-50 flex rounded-full border border-line bg-ink/75 p-1.5 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl lg:hidden"
+      style="padding-bottom: max(0.375rem, env(safe-area-inset-bottom))"
+    >
+      <RouterLink
+        v-for="link in navLinks"
+        :key="link.to"
+        :to="link.to"
+        :aria-current="route.path === link.to ? 'page' : undefined"
+        class="relative flex flex-1 flex-col items-center gap-0.5 rounded-full py-2 text-[11px] font-semibold transition-all duration-300 ease-out-expo"
+        :class="route.path === link.to ? 'bg-lime text-ink' : 'text-mist'"
+      >
+        <component :is="link.icon" class="h-[18px] w-[18px]" />
+        {{ link.label }}
+        <span v-if="link.to === '/instellingen' && !settingsStore.isConfigured" class="absolute right-3 top-1.5 h-1.5 w-1.5 rounded-full bg-amber"></span>
+      </RouterLink>
+    </nav>
   </div>
 </template>

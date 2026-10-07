@@ -5,6 +5,11 @@ import { useRouter } from 'vue-router'
 import { getAvailability } from '@/services/knltb'
 import { useSettingsStore } from '@/stores/settings'
 import { useCourtsStore } from '@/stores/courts'
+import PageHeader from '@/components/PageHeader.vue'
+import { useReveal } from '@/composables/useReveal'
+
+const root = ref(null)
+useReveal(root)
 
 const settings   = useSettingsStore()
 const courtsStore = useCourtsStore()
@@ -147,178 +152,132 @@ function bookSlot(time) {
 </script>
 
 <template>
-  <div class="max-w-3xl space-y-5">
+  <div ref="root" class="mx-auto max-w-6xl px-4 pb-16 pt-32 sm:px-8 sm:pt-40">
 
-    <!-- Header -->
-    <div>
-      <h1 class="text-2xl font-bold text-slate-900">Beschikbaarheid</h1>
-      <p class="text-sm text-slate-400 mt-0.5">Kies een datum om te zien welke tijdsloten vrij zijn</p>
+    <PageHeader eyebrow="Banen" title="Beschikbaarheid" subtitle="Kies een datum om te zien welke tijdsloten vrij zijn." />
+
+    <div v-if="!settings.isConfigured" data-reveal class="note note-amber mb-6">
+      <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+      <p>Stel eerst een <RouterLink to="/instellingen" class="font-semibold underline">x-lisa-auth-token</RouterLink> in om beschikbaarheid op te vragen.</p>
     </div>
 
-    <!-- No token warning -->
-    <div v-if="!settings.isConfigured" class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm">
-      <AlertCircle class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-      <p class="text-amber-800">Stel eerst een <RouterLink to="/instellingen" class="font-semibold underline">x-lisa-auth-token</RouterLink> in om beschikbaarheid op te vragen.</p>
-    </div>
+    <div data-reveal-group class="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-      <!-- ── Calendar ── -->
-      <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-50">
-          <button @click="prevMonth" class="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-            <ChevronLeft class="w-4 h-4 text-slate-500" />
-          </button>
-          <span class="font-semibold text-slate-900 text-sm capitalize">{{ monthLabel }}</span>
-          <button @click="nextMonth" class="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-            <ChevronRight class="w-4 h-4 text-slate-500" />
-          </button>
+      <!-- Calendar -->
+      <div data-reveal class="panel overflow-hidden">
+        <div class="flex items-center justify-between border-b border-line px-5 py-4">
+          <button @click="prevMonth" class="btn-icon !h-10 !w-10 border border-line" aria-label="Vorige maand"><ChevronLeft class="h-4 w-4" /></button>
+          <span class="display text-xl capitalize text-fog">{{ monthLabel }}</span>
+          <button @click="nextMonth" class="btn-icon !h-10 !w-10 border border-line" aria-label="Volgende maand"><ChevronRight class="h-4 w-4" /></button>
         </div>
-
-        <!-- Day headers -->
-        <div class="grid grid-cols-7 px-3 pt-3 pb-1">
-          <div v-for="d in ['Ma','Di','Wo','Do','Vr','Za','Zo']" :key="d" class="text-center text-xs font-semibold text-slate-400 py-1">{{ d }}</div>
+        <div class="grid grid-cols-7 px-4 pb-1 pt-4">
+          <div v-for="d in ['Ma','Di','Wo','Do','Vr','Za','Zo']" :key="d" class="eyebrow py-1.5 text-center">{{ d }}</div>
         </div>
-
-        <!-- Day grid -->
-        <div class="grid grid-cols-7 px-3 pb-4 gap-y-1">
+        <div class="grid grid-cols-7 gap-1 px-4 pb-5">
           <button
-            v-for="({ d, cur }, i) in calDays"
-            :key="i"
+            v-for="({ d, cur }, i) in calDays" :key="i"
             @click="!past(d) && settings.isConfigured && fetchDay(d)"
-            class="relative h-9 w-full flex items-center justify-center rounded-xl text-sm font-medium transition-all"
+            :disabled="!cur || past(d)"
+            :aria-label="d.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })"
+            :aria-pressed="same(d, selected)"
+            class="relative flex aspect-square max-h-12 items-center justify-center rounded-full text-sm font-semibold tabular transition-all duration-300 ease-out-expo"
             :class="[
-              !cur ? 'text-slate-300' : '',
-              cur && past(d) ? 'text-slate-300 cursor-not-allowed' : '',
-              cur && !past(d) && !same(d, selected) ? 'text-slate-700 hover:bg-slate-100 cursor-pointer' : '',
-              same(d, selected) ? 'bg-green-500 text-white shadow-md shadow-green-500/30' : '',
-              same(d, today) && !same(d, selected) ? 'ring-2 ring-green-400 ring-offset-1' : '',
+              !cur ? 'invisible' : '',
+              cur && past(d) ? 'cursor-not-allowed text-mist/35' : '',
+              cur && !past(d) && !same(d, selected) ? 'text-fog hover:bg-white/10' : '',
+              same(d, selected) ? 'scale-110 bg-lime text-ink shadow-[0_8px_30px_-6px_rgba(205,255,46,0.55)]' : '',
+              same(d, today) && !same(d, selected) ? 'ring-1 ring-lime/70' : '',
             ]"
-          >
-            {{ d.getDate() }}
-          </button>
+          >{{ d.getDate() }}</button>
         </div>
       </div>
 
-      <!-- ── Court selector ── -->
-      <div class="space-y-3">
-        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Kies baan</p>
-          <div class="space-y-1.5">
+      <!-- Court selector -->
+      <div data-reveal class="space-y-3">
+        <div class="panel p-5">
+          <p class="label">Kies baan</p>
+          <div role="radiogroup" aria-label="Baan" class="space-y-2">
             <label
-              v-for="court in courtsStore.courts"
-              :key="court.id"
-              class="flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all text-sm"
-              :class="selectedCourt === court.id ? 'border-green-500 bg-green-50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'"
+              v-for="court in courtsStore.courts" :key="court.id"
+              class="flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
+              :class="selectedCourt === court.id ? 'border-lime bg-lime/10' : 'border-line hover:border-white/25 hover:bg-white/[0.04]'"
             >
               <input type="radio" :value="court.id" v-model="selectedCourt" class="sr-only" />
-              <span class="w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors"
-                :class="selectedCourt === court.id ? 'border-green-500' : 'border-slate-300'">
-                <span v-if="selectedCourt === court.id" class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+              <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2" :class="selectedCourt === court.id ? 'border-lime' : 'border-mist/60'">
+                <span v-if="selectedCourt === court.id" class="h-2 w-2 rounded-full bg-lime"></span>
               </span>
-              <span class="flex-1 font-medium" :class="selectedCourt === court.id ? 'text-green-700' : 'text-slate-700'">{{ court.name }}</span>
-              <span class="text-xs text-slate-400">{{ court.number }}</span>
+              <span class="flex-1 font-semibold" :class="selectedCourt === court.id ? 'text-lime' : 'text-fog'">{{ court.name }}</span>
+              <span class="font-mono text-xs text-mist">#{{ court.number }}</span>
             </label>
           </div>
         </div>
 
-        <!-- Legend -->
-        <div class="flex gap-4 px-1">
-          <div class="flex items-center gap-1.5 text-xs text-slate-500"><span class="w-3 h-3 rounded-sm bg-green-100 border border-green-300"></span>Vrij</div>
-          <div class="flex items-center gap-1.5 text-xs text-slate-500"><span class="w-3 h-3 rounded-sm bg-red-100 border border-red-300"></span>Bezet</div>
-          <div class="flex items-center gap-1.5 text-xs text-slate-500"><span class="w-3 h-3 rounded-sm bg-slate-100 border border-slate-300"></span>Onbekend</div>
+        <div class="flex gap-5 px-1 text-xs text-mist">
+          <span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-lime"></span>Vrij</span>
+          <span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-danger"></span>Bezet</span>
+          <span class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-mist"></span>Onbekend</span>
         </div>
       </div>
     </div>
 
-    <!-- ── Availability grid ── -->
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-
-      <!-- Grid header -->
-      <div class="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+    <!-- Availability grid -->
+    <div data-reveal class="panel mt-5 overflow-hidden">
+      <div class="flex items-center justify-between border-b border-line px-6 py-5">
         <div>
-          <p class="font-semibold text-slate-900 text-sm">
-            {{ dateLabel ?? 'Selecteer een datum' }}
-          </p>
-          <p v-if="dateLabel" class="text-xs text-slate-400 mt-0.5">{{ courtsStore.courts.find(c => c.id === selectedCourt)?.name }}</p>
+          <p class="display text-2xl text-fog first-letter:uppercase">{{ dateLabel ?? 'Selecteer een datum' }}</p>
+          <p v-if="dateLabel" class="eyebrow mt-1">{{ courtsStore.courts.find(c => c.id === selectedCourt)?.name }}</p>
         </div>
         <button
           v-if="selected && settings.isConfigured"
-          @click="fetchDay(selected)"
-          class="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-          :class="loading ? 'animate-spin text-slate-400' : 'text-slate-400 hover:text-slate-600'"
+          @click="fetchDay(selected)" class="btn-icon !h-10 !w-10 border border-line" aria-label="Ververs beschikbaarheid"
         >
-          <RefreshCw class="w-4 h-4" />
+          <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" />
         </button>
       </div>
 
-      <!-- Loading -->
-      <div v-if="loading" class="p-10 flex flex-col items-center gap-3">
-        <div class="w-8 h-8 rounded-full border-2 border-green-500 border-t-transparent animate-spin"></div>
-        <p class="text-sm text-slate-400">Beschikbaarheid ophalen…</p>
+      <div v-if="loading" class="flex flex-col items-center gap-3 p-12" role="status">
+        <div class="h-8 w-8 animate-spin rounded-full border-2 border-lime border-t-transparent"></div>
+        <p class="text-sm text-mist">Beschikbaarheid ophalen…</p>
       </div>
 
-      <!-- Error -->
-      <div v-else-if="apiError" class="p-5 space-y-3">
-        <div class="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
-          <AlertCircle class="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <span>{{ apiError }}</span>
-        </div>
+      <div v-else-if="apiError" class="space-y-3 p-6">
+        <div class="note note-amber"><AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" /><span>{{ apiError }}</span></div>
         <div v-if="rawData">
-          <button @click="showRaw = !showRaw" class="text-xs text-slate-400 hover:text-slate-600 transition-colors">
-            {{ showRaw ? 'Verberg' : 'Toon' }} ruwe API-response
-          </button>
-          <pre v-if="showRaw" class="mt-2 text-xs bg-slate-950 text-green-400 p-4 rounded-xl overflow-auto max-h-48 font-mono">{{ JSON.stringify(rawData, null, 2) }}</pre>
+          <button @click="showRaw = !showRaw" class="text-xs text-mist transition-colors hover:text-fog">{{ showRaw ? 'Verberg' : 'Toon' }} ruwe API-response</button>
+          <pre v-if="showRaw" data-lenis-prevent class="mt-2 max-h-48 overflow-auto rounded-2xl bg-ink p-4 font-mono text-xs text-lime">{{ JSON.stringify(rawData, null, 2) }}</pre>
         </div>
       </div>
 
-      <!-- Empty state -->
-      <div v-else-if="!hasData" class="p-10 flex flex-col items-center gap-3 text-center">
-        <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center">
-          <CalendarDays class="w-6 h-6 text-slate-300" />
-        </div>
-        <p class="text-sm text-slate-400">Kies een datum in de kalender om de beschikbaarheid te zien</p>
+      <div v-else-if="!hasData" class="flex flex-col items-center gap-3 p-14 text-center">
+        <div class="flex h-14 w-14 items-center justify-center rounded-full border border-line bg-white/5"><CalendarDays class="h-6 w-6 text-mist" /></div>
+        <p class="text-sm text-mist">Kies een datum in de kalender om de beschikbaarheid te zien.</p>
       </div>
 
-      <!-- Slot list -->
-      <div v-else class="divide-y divide-slate-50">
-        <div
-          v-for="time in TIME_SLOTS"
-          :key="time"
-          class="flex items-center gap-4 px-5 py-2.5"
-        >
-          <span class="w-12 text-xs font-mono text-slate-400 flex-shrink-0">{{ time }}</span>
-
-          <!-- Status pill -->
+      <ul v-else class="divide-y divide-line">
+        <li v-for="time in TIME_SLOTS" :key="time" class="flex items-center gap-4 px-6 py-2.5">
+          <span class="w-12 flex-shrink-0 font-mono text-xs text-mist tabular">{{ time }}</span>
           <div class="flex-1">
             <span
-              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+              class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em]"
               :class="{
-                'bg-green-50 text-green-700 border border-green-200': slotStatus(time, selectedCourt) === 'available',
-                'bg-red-50 text-red-700 border border-red-200':       slotStatus(time, selectedCourt) === 'booked',
-                'bg-slate-100 text-slate-400 border border-slate-200': slotStatus(time, selectedCourt) === 'unknown',
+                'border-lime/30 bg-lime/10 text-lime':    slotStatus(time, selectedCourt) === 'available',
+                'border-danger/30 bg-danger/10 text-danger': slotStatus(time, selectedCourt) === 'booked',
+                'border-line bg-white/5 text-mist':       slotStatus(time, selectedCourt) === 'unknown',
               }"
             >
-              <span class="w-1.5 h-1.5 rounded-full" :class="{
-                'bg-green-500': slotStatus(time, selectedCourt) === 'available',
-                'bg-red-500':   slotStatus(time, selectedCourt) === 'booked',
-                'bg-slate-400': slotStatus(time, selectedCourt) === 'unknown',
+              <span class="h-1.5 w-1.5 rounded-full" :class="{
+                'bg-lime':   slotStatus(time, selectedCourt) === 'available',
+                'bg-danger': slotStatus(time, selectedCourt) === 'booked',
+                'bg-mist':   slotStatus(time, selectedCourt) === 'unknown',
               }"></span>
               {{ slotStatus(time, selectedCourt) === 'available' ? 'Vrij' : slotStatus(time, selectedCourt) === 'booked' ? 'Bezet' : '?' }}
             </span>
           </div>
-
-          <!-- Book button -->
-          <button
-            v-if="slotStatus(time, selectedCourt) === 'available'"
-            @click="bookSlot(time)"
-            class="flex items-center gap-1.5 text-xs font-semibold text-green-600 hover:text-green-500 hover:bg-green-50 px-2.5 py-1.5 rounded-lg transition-all"
-          >
-            <Zap class="w-3 h-3" />
-            Boek
+          <button v-if="slotStatus(time, selectedCourt) === 'available'" @click="bookSlot(time)" class="btn btn-ghost !px-3.5 !py-1.5 text-xs text-lime hover:!bg-lime/10">
+            <Zap class="h-3 w-3" />Boek
           </button>
-        </div>
-      </div>
+        </li>
+      </ul>
     </div>
 
   </div>

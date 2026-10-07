@@ -1,12 +1,18 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { Plus, User, Users, Trash2, Pencil, Check, X, Search, Loader2, AlertCircle } from '@lucide/vue'
+import { ref, computed, watch, nextTick } from 'vue'
+import { Plus, Users, Trash2, Pencil, Check, X, Search, Loader2, AlertCircle, Link2 } from '@lucide/vue'
 import { useMembersStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
 import { searchMembers } from '@/services/knltb'
+import PageHeader from '@/components/PageHeader.vue'
+import { useReveal } from '@/composables/useReveal'
+import { gsap, Flip, prefersReducedMotion } from '@/lib/motion'
 
 const store    = useMembersStore()
 const settings = useSettingsStore()
+
+const root = ref(null)
+useReveal(root)
 
 const showAddForm = ref(false)
 const newName     = ref('')
@@ -33,6 +39,10 @@ function onKnltbInput() {
   knltbDebounce = setTimeout(runKnltbSearch, 350)
 }
 
+function knltbList(data) {
+  return data?.members ?? data?.data ?? (Array.isArray(data) ? data : [])
+}
+
 async function runKnltbSearch() {
   if (!settings.isConfigured) { knltbError.value = 'Stel eerst een token in via Instellingen.'; return }
   knltbLoading.value = true
@@ -40,8 +50,7 @@ async function runKnltbSearch() {
   try {
     const res = await searchMembers(settings.clubId, knltbQuery.value.trim(), settings.lisaToken)
     if (!res.ok) { knltbError.value = `API fout ${res.status}`; knltbResults.value = []; return }
-    const data = res.data
-    knltbResults.value = data?.members ?? data?.data ?? (Array.isArray(data) ? data : [])
+    knltbResults.value = knltbList(res.data)
   } catch (e) { knltbError.value = e.message }
   finally { knltbLoading.value = false }
 }
@@ -54,12 +63,58 @@ function pickKnltbResult(m) {
   knltbResults.value = []
 }
 
-const filteredMembers = computed(() =>
-  store.members.filter(m =>
-    m.name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-    m.memberNumber.includes(searchQuery.value)
-  )
-)
+// ── UUID koppelen voor leden die alleen een lidnummer hebben ──
+const linkingId  = ref(null)
+const linkErrors = ref({})
+
+const knltbName = m => m.full_name ?? [m.first_name, m.last_name].filter(Boolean).join(' ')
+
+async function linkMember(member) {
+  linkErrors.value = { ...linkErrors.value, [member.id]: '' }
+  if (!settings.isConfigured) {
+    linkErrors.value[member.id] = 'Stel eerst een token in via Instellingen.'
+    return
+  }
+  linkingId.value = member.id
+  try {
+    const res = await searchMembers(settings.clubId, member.name, settings.lisaToken)
+    if (!res.ok) throw new Error(`API fout ${res.status}`)
+    const list = knltbList(res.data)
+    const sameNumber = list.find(m => member.memberNumber && String(m.member_number ?? m.knltb_number) === member.memberNumber)
+    const sameName   = list.find(m => knltbName(m).trim().toLowerCase() === member.name.trim().toLowerCase())
+    const hit = sameNumber ?? sameName ?? (list.length === 1 ? list[0] : null)
+    const uuid = hit?.id ?? hit?.club_member_id
+    if (!uuid) throw new Error('Geen duidelijke match — gebruik de zoeker bij "Lid toevoegen" of vul de UUID handmatig in.')
+    await store.updateMember(member.id, { clubMemberId: uuid })
+  } catch (e) {
+    linkErrors.value[member.id] = e.message
+  } finally {
+    linkingId.value = null
+  }
+}
+
+// ── Lijst + zoeken (Flip animeert het herschikken) ─────────────
+const missingUuid = computed(() => store.members.filter(m => !m.clubMemberId).length)
+
+function matches(m) {
+  const q = searchQuery.value.trim().toLowerCase()
+  return !q || m.name.toLowerCase().includes(q) || (m.memberNumber ?? '').includes(q)
+}
+const visibleCount = computed(() => store.members.filter(matches).length)
+
+const grid = ref(null)
+watch(searchQuery, async () => {
+  if (prefersReducedMotion() || !grid.value) return
+  const state = Flip.getState(grid.value.querySelectorAll('[data-member]'))
+  await nextTick()
+  Flip.from(state, {
+    duration: 0.6, ease: 'expo.out', absolute: true, nested: true,
+    onEnter: els => gsap.fromTo(els, { opacity: 0, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.5, ease: 'expo.out' }),
+    onLeave: els => gsap.to(els, { opacity: 0, scale: 0.92, duration: 0.3 }),
+  })
+})
+
+const initials = name => name.split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase()
 
 function submitAdd() {
   if (!newName.value.trim() || !newNumber.value.trim()) return
@@ -103,244 +158,179 @@ function deleteMember(id) {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div ref="root" class="mx-auto max-w-6xl px-4 pb-16 pt-32 sm:px-8 sm:pt-40">
 
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Leden</h1>
-        <p class="text-sm text-gray-500 mt-1">{{ store.members.length }} KNLTB lidnummer{{ store.members.length !== 1 ? 's' : '' }}</p>
-      </div>
-      <button
-        @click="showAddForm = !showAddForm"
-        class="flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md shadow-green-500/20"
-      >
-        <Plus class="w-4 h-4" />
+    <PageHeader
+      eyebrow="Maatjes"
+      title="Leden"
+      :subtitle="`${store.members.length} KNLTB lidnummer${store.members.length !== 1 ? 's' : ''} — kies er vier per reservering.`"
+    >
+      <button v-magnetic="0.25" class="btn btn-primary" @click="showAddForm = !showAddForm" :aria-expanded="showAddForm">
+        <Plus class="h-4 w-4 transition-transform duration-300" :class="showAddForm ? 'rotate-45' : ''" />
         Lid toevoegen
       </button>
+    </PageHeader>
+
+    <!-- Waarschuwing: leden zonder UUID kunnen niet geboekt worden -->
+    <div v-if="missingUuid > 0" data-reveal class="note note-amber mb-6">
+      <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+      <p>
+        <strong>{{ missingUuid }} lid{{ missingUuid !== 1 ? 'en' : '' }}</strong> heb{{ missingUuid !== 1 ? 'ben' : 't' }} nog geen club-UUID en
+        {{ missingUuid !== 1 ? 'kunnen' : 'kan' }} niet geboekt worden. Klik op <em>Koppel via KNLTB</em> bij het lid.
+      </p>
     </div>
 
     <!-- Add form -->
     <Transition
-      enter-active-class="transition duration-150 ease-out"
-      enter-from-class="opacity-0 -translate-y-2"
+      enter-active-class="transition duration-500 ease-out-expo"
+      enter-from-class="opacity-0 -translate-y-3"
       enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition duration-100 ease-in"
+      leave-active-class="transition duration-200 ease-in"
       leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 -translate-y-2"
+      leave-to-class="opacity-0 -translate-y-3"
     >
-      <div v-if="showAddForm" class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-        <h3 class="font-semibold text-gray-900 mb-4">Nieuw lid toevoegen</h3>
+      <div v-if="showAddForm" class="panel mb-8 p-6 sm:p-8">
+        <h2 class="display mb-6 text-3xl text-fog">Nieuw lid</h2>
 
         <!-- KNLTB ledenzoeker -->
-        <div class="mb-5 pb-5 border-b border-slate-100">
-          <label class="block text-xs font-medium text-slate-700 mb-1.5">
-            Zoek in KNLTB ledenbestand <span class="text-slate-400 font-normal">(vult automatisch naam, lidnummer & UUID in)</span>
+        <div class="mb-8 border-b border-line pb-8">
+          <label class="label" for="knltb-search">
+            Zoek in KNLTB ledenbestand <span class="normal-case tracking-normal text-mist/80">— vult naam, lidnummer &amp; UUID in</span>
           </label>
           <div class="relative">
-            <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-mist" />
             <input
-              v-model="knltbQuery"
-              @input="onKnltbInput"
-              type="text"
-              placeholder="Typ een naam..."
-              class="w-full pl-9 pr-9 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
+              id="knltb-search" v-model="knltbQuery" @input="onKnltbInput" type="text" placeholder="Typ een naam..."
+              class="input !pl-11 !pr-11"
             />
-            <Loader2 v-if="knltbLoading" class="w-4 h-4 text-slate-400 animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
+            <Loader2 v-if="knltbLoading" class="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-mist" />
           </div>
 
-          <div v-if="knltbError" class="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
-            <AlertCircle class="w-3.5 h-3.5 flex-shrink-0" />{{ knltbError }}
+          <div v-if="knltbError" class="note note-amber mt-3">
+            <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />{{ knltbError }}
           </div>
 
-          <div v-if="knltbResults.length > 0" class="mt-2 border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-56 overflow-y-auto">
-            <button
-              v-for="m in knltbResults"
-              :key="m.id ?? m.club_member_id"
-              @click="pickKnltbResult(m)"
-              type="button"
-              class="w-full text-left px-3 py-2 hover:bg-green-50 transition-colors flex items-center justify-between gap-2"
-            >
-              <span class="text-sm font-medium text-slate-800">{{ m.full_name ?? [m.first_name, m.last_name].filter(Boolean).join(' ') }}</span>
-              <span class="text-xs text-slate-400 font-mono">{{ m.member_number ?? m.knltb_number }}</span>
-            </button>
-          </div>
+          <ul v-if="knltbResults.length > 0" data-lenis-prevent class="mt-3 max-h-60 divide-y divide-line overflow-y-auto rounded-2xl border border-line bg-ink-900">
+            <li v-for="m in knltbResults" :key="m.id ?? m.club_member_id">
+              <button type="button" @click="pickKnltbResult(m)" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-lime/10">
+                <span class="text-sm font-medium text-fog">{{ knltbName(m) }}</span>
+                <span class="font-mono text-xs text-mist">{{ m.member_number ?? m.knltb_number }}</span>
+              </button>
+            </li>
+          </ul>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <div>
-            <label class="block text-xs font-medium text-gray-700 mb-1.5">Naam</label>
-            <input
-              v-model="newName"
-              type="text"
-              placeholder="Jan de Vries"
-              class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-              @keyup.enter="submitAdd"
-            />
+            <label class="label" for="new-name">Naam</label>
+            <input id="new-name" v-model="newName" type="text" placeholder="Jan de Vries" class="input" @keyup.enter="submitAdd" />
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 mb-1.5">KNLTB Lidnummer</label>
-            <input
-              v-model="newNumber"
-              type="text"
-              placeholder="12345678"
-              class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-              @keyup.enter="submitAdd"
-            />
+            <label class="label" for="new-number">KNLTB lidnummer</label>
+            <input id="new-number" v-model="newNumber" type="text" inputmode="numeric" placeholder="12345678" class="input font-mono" @keyup.enter="submitAdd" />
           </div>
           <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-slate-700 mb-1.5">
-              Club Member UUID
-              <span class="ml-1 text-slate-400 font-normal">(voor boeken — vind in Proxyman onder <code class="bg-slate-100 px-1 rounded">club_member_ids</code>)</span>
+            <label class="label" for="new-uuid">
+              Club member UUID <span class="normal-case tracking-normal text-mist/80">— nodig om te boeken, mag ook later</span>
             </label>
-            <input
-              v-model="newUuid"
-              type="text"
-              placeholder="5331bbd0-1993-4fff-b3d8-46950b4ea031"
-              class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-              @keyup.enter="submitAdd"
-            />
+            <input id="new-uuid" v-model="newUuid" type="text" placeholder="5331bbd0-1993-4fff-b3d8-46950b4ea031" class="input font-mono" @keyup.enter="submitAdd" />
           </div>
         </div>
-        <div class="flex gap-2 mt-4">
-          <button
-            @click="submitAdd"
-            class="flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-          >
-            <Check class="w-4 h-4" />
-            Toevoegen
-          </button>
-          <button
-            @click="showAddForm = false; newName = ''; newNumber = ''; newUuid = ''"
-            class="flex items-center gap-2 text-slate-600 hover:text-slate-900 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-200 hover:bg-slate-50"
-          >
-            <X class="w-4 h-4" />
-            Annuleren
-          </button>
+
+        <div class="mt-7 flex flex-wrap gap-3">
+          <button @click="submitAdd" class="btn btn-primary"><Check class="h-4 w-4" />Toevoegen</button>
+          <button @click="showAddForm = false; newName = ''; newNumber = ''; newUuid = ''" class="btn btn-ghost"><X class="h-4 w-4" />Annuleren</button>
         </div>
       </div>
     </Transition>
 
     <!-- Empty state -->
-    <div v-if="store.members.length === 0" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
-      <div class="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-        <Users class="w-7 h-7 text-gray-300" />
+    <div v-if="store.members.length === 0" data-reveal class="panel flex flex-col items-center px-6 py-20 text-center">
+      <div class="mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-line bg-white/5">
+        <Users class="h-7 w-7 text-mist" />
       </div>
-      <h3 class="font-semibold text-gray-900 mb-1">Nog geen leden</h3>
-      <p class="text-sm text-slate-400 mb-4">Voeg KNLTB lidnummers toe om reserveringen te kunnen maken</p>
-      <button
-        @click="showAddForm = true"
-        class="inline-flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
-      >
-        <Plus class="w-4 h-4" />
-        Voeg je eerste lid toe
-      </button>
+      <h2 class="display text-3xl text-fog">Nog geen leden</h2>
+      <p class="mt-2 mb-6 text-sm text-mist">Voeg KNLTB lidnummers toe om reserveringen te kunnen maken.</p>
+      <button @click="showAddForm = true" class="btn btn-primary"><Plus class="h-4 w-4" />Voeg je eerste lid toe</button>
     </div>
 
     <template v-else>
       <!-- Search -->
-      <div class="relative">
-        <Search class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Zoek op naam of lidnummer..."
-          class="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-        />
+      <div data-reveal class="relative mb-6 max-w-md">
+        <label for="member-search" class="sr-only">Zoek op naam of lidnummer</label>
+        <Search class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-mist" />
+        <input id="member-search" v-model="searchQuery" type="text" placeholder="Zoek op naam of lidnummer..." class="input !rounded-full !pl-11" />
       </div>
 
       <!-- Grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="member in filteredMembers"
+      <div ref="grid" data-reveal-group class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <article
+          v-for="member in store.members"
+          v-show="matches(member)"
           :key="member.id"
-          class="bg-white rounded-2xl border border-slate-100 shadow-sm p-4"
+          v-tilt="4"
+          data-member
+          data-reveal
+          class="panel spotlight p-5"
         >
           <!-- Edit mode -->
           <template v-if="editingId === member.id">
-            <div class="space-y-2">
-              <input
-                v-model="editName"
-                type="text"
-                placeholder="Naam"
-                class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-              />
-              <input
-                v-model="editNumber"
-                type="text"
-                placeholder="Lidnummer"
-                class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-400"
-              />
-              <input
-                v-model="editUuid"
-                type="text"
-                placeholder="Club Member UUID"
-                class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-400"
-              />
+            <div class="space-y-2.5">
+              <input v-model="editName" type="text" placeholder="Naam" aria-label="Naam" class="input !py-2.5" />
+              <input v-model="editNumber" type="text" placeholder="Lidnummer" aria-label="Lidnummer" class="input !py-2.5 font-mono" />
+              <input v-model="editUuid" type="text" placeholder="Club member UUID" aria-label="Club member UUID" class="input !py-2.5 font-mono" />
               <div class="flex gap-2 pt-1">
-                <button
-                  @click="submitEdit"
-                  class="flex-1 flex items-center justify-center gap-1.5 bg-green-500 hover:bg-green-400 text-white py-2 rounded-lg text-sm font-medium transition-all"
-                >
-                  <Check class="w-3.5 h-3.5" />
-                  Opslaan
-                </button>
-                <button
-                  @click="cancelEdit"
-                  class="flex-1 flex items-center justify-center gap-1.5 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
-                >
-                  <X class="w-3.5 h-3.5" />
-                  Annuleren
-                </button>
+                <button @click="submitEdit" class="btn btn-primary flex-1 !py-2.5"><Check class="h-4 w-4" />Opslaan</button>
+                <button @click="cancelEdit" class="btn btn-ghost flex-1 !py-2.5"><X class="h-4 w-4" />Annuleren</button>
               </div>
             </div>
           </template>
 
           <!-- View mode -->
           <template v-else>
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex items-center gap-3 min-w-0">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-4">
                 <div
-                  class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  :class="member.clubMemberId ? 'bg-green-50' : 'bg-amber-50'"
-                >
-                  <User class="w-5 h-5" :class="member.clubMemberId ? 'text-green-600' : 'text-amber-500'" />
-                </div>
+                  class="display flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full text-2xl"
+                  :class="member.clubMemberId ? 'bg-lime text-ink' : 'border border-amber/50 bg-amber/10 text-amber'"
+                  aria-hidden="true"
+                >{{ initials(member.name) }}</div>
                 <div class="min-w-0">
-                  <p class="font-semibold text-slate-900 truncate">{{ member.name }}</p>
-                  <p class="text-xs text-slate-500 font-mono">{{ member.memberNumber }}</p>
-                  <p v-if="member.clubMemberId" class="text-xs text-slate-400 font-mono truncate">{{ member.clubMemberId }}</p>
-                  <p v-else class="text-xs text-amber-500 font-medium">UUID ontbreekt — kan niet boeken</p>
+                  <h3 class="line-clamp-2 text-lg font-semibold leading-tight text-fog">{{ member.name }}</h3>
+                  <p v-if="member.memberNumber" class="mt-0.5 font-mono text-sm text-mist">{{ member.memberNumber }}</p>
+                  <p v-else class="mt-0.5 whitespace-nowrap font-mono text-xs text-amber">geen lidnummer</p>
                 </div>
               </div>
-              <div class="flex gap-0.5 flex-shrink-0">
-                <button
-                  @click="startEdit(member)"
-                  class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
-                  title="Bewerken"
-                >
-                  <Pencil class="w-4 h-4" />
-                </button>
-                <button
-                  @click="deleteMember(member.id)"
-                  class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Verwijderen"
-                >
-                  <Trash2 class="w-4 h-4" />
-                </button>
+              <div class="flex flex-shrink-0">
+                <button @click="startEdit(member)" class="btn-icon" :aria-label="`${member.name} bewerken`"><Pencil class="h-4 w-4" /></button>
+                <button @click="deleteMember(member.id)" class="btn-icon hover:!bg-danger/15 hover:!text-danger" :aria-label="`${member.name} verwijderen`"><Trash2 class="h-4 w-4" /></button>
               </div>
             </div>
-          </template>
-        </div>
 
-        <!-- No results -->
-        <div
-          v-if="filteredMembers.length === 0 && searchQuery"
-          class="sm:col-span-2 lg:col-span-3 py-8 text-center text-sm text-gray-500"
-        >
-          Geen leden gevonden voor "<strong>{{ searchQuery }}</strong>"
-        </div>
+            <div class="mt-5 border-t border-line pt-4">
+              <p v-if="member.clubMemberId" class="truncate font-mono text-[11px] text-mist" :title="member.clubMemberId">UUID {{ member.clubMemberId }}</p>
+              <template v-else>
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-sm text-amber">UUID ontbreekt — kan niet boeken</p>
+                  <button
+                    @click="linkMember(member)" :disabled="linkingId === member.id"
+                    class="btn btn-ghost flex-shrink-0 !px-3.5 !py-1.5 text-xs"
+                  >
+                    <Loader2 v-if="linkingId === member.id" class="h-3.5 w-3.5 animate-spin" />
+                    <Link2 v-else class="h-3.5 w-3.5" />
+                    Koppel via KNLTB
+                  </button>
+                </div>
+                <p v-if="linkErrors[member.id]" class="mt-2 text-xs leading-relaxed text-danger">{{ linkErrors[member.id] }}</p>
+              </template>
+            </div>
+          </template>
+        </article>
       </div>
+
+      <p v-if="visibleCount === 0 && searchQuery" class="py-12 text-center text-mist">
+        Geen leden gevonden voor "<strong class="text-fog">{{ searchQuery }}</strong>"
+      </p>
     </template>
 
   </div>

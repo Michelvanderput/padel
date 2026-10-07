@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { MapPin, Users, Check, AlertCircle, ChevronLeft, ChevronRight, Zap, Timer, RefreshCw } from '@lucide/vue'
+import { MapPin, AlertCircle, ChevronLeft, ChevronRight, Zap, Timer, RefreshCw, ArrowUpRight } from '@lucide/vue'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
@@ -9,6 +9,11 @@ import { scheduleReservation } from '@/services/scheduler'
 import { getAvailability } from '@/services/knltb'
 import { useCourtsStore } from '@/stores/courts'
 import { LOCATION } from '@/constants/courts'
+import PageHeader from '@/components/PageHeader.vue'
+import { useReveal } from '@/composables/useReveal'
+
+const root = ref(null)
+useReveal(root)
 
 const router   = useRouter()
 const route    = useRoute()
@@ -205,313 +210,279 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
 </script>
 
 <template>
-  <div class="max-w-2xl space-y-5">
+  <div ref="root" class="mx-auto max-w-6xl px-4 pb-16 pt-32 sm:px-8 sm:pt-40">
 
-    <!-- Header -->
-    <div>
-      <button @click="router.back()" class="flex items-center gap-1 text-sm text-slate-400 hover:text-slate-600 mb-3 transition-colors">
-        <ChevronLeft class="w-4 h-4" />Terug
-      </button>
-      <h1 class="text-2xl font-bold text-slate-900">Nieuwe reservering</h1>
-      <p class="text-sm text-slate-400 mt-0.5">Kies een baan, datum en tijdslot</p>
-    </div>
-
-    <!-- ── Stap 1: Baan ── -->
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">1 — Kies baan</p>
-
-      <!-- Location badge -->
-      <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl w-fit">
-        <MapPin class="w-3.5 h-3.5 text-slate-400" />
-        <span class="text-xs font-medium text-slate-600">{{ LOCATION }}</span>
-      </div>
-
-      <!-- Court radio grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <label
-          v-for="court in courtsStore.courts" :key="court.id"
-          class="flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all text-sm"
-          :class="form.courtId === court.id ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'"
-        >
-          <input type="radio" :value="court.id" v-model="form.courtId" class="sr-only" />
-          <span class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
-            :class="form.courtId === court.id ? 'border-green-500' : 'border-slate-300'">
-            <span v-if="form.courtId === court.id" class="w-2 h-2 rounded-full bg-green-500"></span>
-          </span>
-          <span class="flex-1 font-medium" :class="form.courtId === court.id ? 'text-green-700' : 'text-slate-700'">{{ court.name }}</span>
-          <span class="text-xs text-slate-400">{{ court.number }}</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- ── Stap 2: Datum + Tijdslot ── -->
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-      <div class="p-5 border-b border-slate-50">
-        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">2 — Kies datum & tijdslot</p>
-        <p v-if="!settings.isConfigured" class="text-xs text-amber-600 mt-1">
-          ⚠ Geen token ingesteld — beschikbaarheid kan niet worden opgehaald
-        </p>
-      </div>
-
-      <!-- Calendar -->
-      <div class="p-4 border-b border-slate-50">
-        <div class="flex items-center justify-between mb-3">
-          <button @click="prevMonth" class="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"><ChevronLeft class="w-4 h-4 text-slate-500" /></button>
-          <span class="font-semibold text-slate-900 text-sm capitalize">{{ monthLabel }}</span>
-          <button @click="nextMonth" class="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"><ChevronRight class="w-4 h-4 text-slate-500" /></button>
-        </div>
-        <div class="grid grid-cols-7 mb-1">
-          <div v-for="d in ['Ma','Di','Wo','Do','Vr','Za','Zo']" :key="d" class="text-center text-xs font-semibold text-slate-400 py-1">{{ d }}</div>
-        </div>
-        <div class="grid grid-cols-7 gap-y-0.5">
-          <button
-            v-for="({ d, cur }, i) in calDays" :key="i"
-            @click="cur && !isPast(d) && pickDate(d)"
-            class="relative h-9 flex items-center justify-center rounded-xl text-sm font-medium transition-all"
-            :class="[
-              !cur                                          ? 'text-slate-200 cursor-default' : '',
-              cur && isPast(d)                             ? 'text-slate-300 cursor-not-allowed' : '',
-              cur && !isPast(d) && !sameDay(d, selectedCalDate) ? 'text-slate-700 hover:bg-slate-100 cursor-pointer' : '',
-              sameDay(d, selectedCalDate)                  ? 'bg-green-500 text-white shadow shadow-green-500/30' : '',
-              sameDay(d, today) && !sameDay(d, selectedCalDate) ? 'ring-2 ring-green-400 ring-offset-1' : '',
-            ]"
-          >{{ d.getDate() }}</button>
-        </div>
-      </div>
-
-      <!-- Availability / time slot picker -->
-      <div class="p-4">
-        <!-- Not selected yet -->
-        <p v-if="!form.date" class="text-sm text-slate-400 text-center py-4">
-          ← Kies een datum in de kalender
-        </p>
-
-        <!-- Loading -->
-        <div v-else-if="avLoading" class="flex items-center justify-center gap-3 py-6">
-          <div class="w-5 h-5 rounded-full border-2 border-green-500 border-t-transparent animate-spin"></div>
-          <span class="text-sm text-slate-400">Beschikbaarheid ophalen…</span>
-        </div>
-
-        <!-- Slots -->
-        <div v-else>
-          <div class="flex items-center justify-between mb-3">
-            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              Tijdsloten — {{ new Date(form.date + 'T12:00:00').toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' }) }}
-            </p>
-            <div class="flex items-center gap-3 text-xs text-slate-400">
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-400"></span>Vrij</span>
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-400"></span>Bezet</span>
-              <button v-if="settings.isConfigured" @click="fetchSlots(new Date(form.date + 'T12:00:00'))" class="p-1 hover:bg-slate-100 rounded-lg transition-colors">
-                <RefreshCw class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <!-- API error -->
-          <div v-if="avError" class="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-            <AlertCircle class="w-3.5 h-3.5 flex-shrink-0" />{{ avError }}
-          </div>
-
-          <!-- Slot chips -->
-          <div class="flex flex-wrap gap-1.5">
-            <template v-for="time in TIME_SLOTS" :key="time">
-              <!-- Skip closed slots entirely -->
-              <button
-                v-if="slotInfo(time).status !== 'closed'"
-                @click="pickSlot(time)"
-                :disabled="slotInfo(time).status === 'booked'"
-                class="flex flex-col items-center px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all min-w-[3.5rem]"
-                :class="{
-                  'bg-green-500 text-white border-green-500 shadow shadow-green-500/25': form.timeSlot === time,
-                  'bg-green-50 text-green-700 border-green-200 hover:bg-green-100 cursor-pointer': slotInfo(time).status === 'available' && form.timeSlot !== time,
-                  'bg-red-50 text-red-400 border-red-100 cursor-not-allowed opacity-60': slotInfo(time).status === 'booked',
-                  'bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100 cursor-pointer': slotInfo(time).status === 'unknown' && form.timeSlot !== time,
-                }"
-              >
-                <span>{{ time }}</span>
-                <!-- Duration badges -->
-                <span
-                  v-if="slotInfo(time).status === 'available' || form.timeSlot === time"
-                  class="flex gap-0.5 mt-0.5"
-                >
-                  <span
-                    v-for="dur in slotInfo(time).durations" :key="dur"
-                    class="text-[9px] font-bold px-1 rounded"
-                    :class="form.timeSlot === time ? 'bg-white/20 text-white' : 'bg-green-100 text-green-600'"
-                  >{{ dur }}'</span>
-                </span>
-                <span v-if="slotInfo(time).status === 'booked'" class="text-[9px] mt-0.5 font-medium">bezet</span>
-              </button>
-            </template>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Stap 3: Speelduur + Boekwijze ── -->
-    <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-5">
-      <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">3 — Speelduur & boekwijze</p>
-
-      <!-- Duration -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <label class="block text-sm font-medium text-slate-700">Speelduur</label>
-          <span v-if="form.timeSlot && selectedSlotDurations.length === 1 && selectedSlotDurations[0] === 60" class="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
-            ⚡ Prime time — alleen {{ selectedSlotDurations[0] }} min
-          </span>
-        </div>
-        <div class="flex gap-3">
-          <label v-for="d in selectedSlotDurations" :key="d"
-            class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all text-sm font-medium select-none"
-            :class="form.duration === d ? 'border-green-500 bg-green-50 text-green-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'"
-          >
-            <input type="radio" :value="d" v-model="form.duration" class="sr-only" />
-            <span class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-              :class="form.duration === d ? 'border-green-500' : 'border-slate-300'">
-              <span v-if="form.duration === d" class="w-2 h-2 rounded-full bg-green-500"></span>
-            </span>
-            {{ d }} min
-          </label>
-        </div>
-      </div>
-
-      <!-- Booking mode -->
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-2">Boekwijze</label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="flex flex-col gap-2 p-4 rounded-xl border cursor-pointer transition-all"
-            :class="bookingMode === 'vooruit' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'">
-            <input type="radio" value="vooruit" v-model="bookingMode" class="sr-only" />
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-lg flex items-center justify-center" :class="bookingMode === 'vooruit' ? 'bg-green-500' : 'bg-slate-100'">
-                <Timer class="w-4 h-4" :class="bookingMode === 'vooruit' ? 'text-white' : 'text-slate-400'" />
-              </div>
-              <span class="text-sm font-semibold" :class="bookingMode === 'vooruit' ? 'text-green-700' : 'text-slate-700'">Vooruit boeken</span>
-            </div>
-            <p class="text-xs leading-relaxed" :class="bookingMode === 'vooruit' ? 'text-green-600' : 'text-slate-400'">Precies 72 uur voor het tijdslot, op de milliseconde</p>
-          </label>
-          <label class="flex flex-col gap-2 p-4 rounded-xl border cursor-pointer transition-all"
-            :class="bookingMode === 'direct' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'">
-            <input type="radio" value="direct" v-model="bookingMode" class="sr-only" />
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-lg flex items-center justify-center" :class="bookingMode === 'direct' ? 'bg-blue-500' : 'bg-slate-100'">
-                <Zap class="w-4 h-4" :class="bookingMode === 'direct' ? 'text-white' : 'text-slate-400'" />
-              </div>
-              <span class="text-sm font-semibold" :class="bookingMode === 'direct' ? 'text-blue-700' : 'text-slate-700'">Direct boeken</span>
-            </div>
-            <p class="text-xs leading-relaxed" :class="bookingMode === 'direct' ? 'text-blue-600' : 'text-slate-400'">Probeert meteen te plaatsen</p>
-          </label>
-        </div>
-
-        <Transition enter-active-class="transition duration-150" enter-from-class="opacity-0 -translate-y-1" enter-to-class="opacity-100 translate-y-0">
-          <div v-if="computedTrigger" class="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm"
-            :class="bookingMode === 'direct' ? 'bg-blue-50 border border-blue-100' : 'bg-green-50 border border-green-100'">
-            <Timer class="w-3.5 h-3.5 flex-shrink-0" :class="bookingMode === 'direct' ? 'text-blue-400' : 'text-green-400'" />
-            <span :class="bookingMode === 'direct' ? 'text-blue-700' : 'text-green-700'">
-              <span class="font-medium">Boekmoment: </span>{{ formatTriggerPreview(computedTrigger) }}
-            </span>
-          </div>
-        </Transition>
-      </div>
-    </div>
-
-    <!-- Member selection -->
-    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <Users class="w-4 h-4 text-gray-400" />
-          <h2 class="font-semibold text-gray-900">Selecteer 4 leden</h2>
-        </div>
-        <div
-          class="flex items-center gap-1.5 text-sm font-semibold px-2.5 py-1 rounded-full transition-colors"
-          :class="selectedMemberIds.length === 4 ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'"
-        >
-          {{ selectedMemberIds.length }} / 4
-        </div>
-      </div>
-
-      <!-- No members warning -->
-      <div v-if="membersStore.members.length === 0" class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
-        <AlertCircle class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-        <div>
-          <p class="text-sm font-semibold text-amber-800">Nog geen leden toegevoegd</p>
-          <p class="text-sm text-amber-700 mt-0.5">
-            Voeg eerst KNLTB lidnummers toe op de <RouterLink to="/leden" class="underline font-medium">Leden pagina</RouterLink>.
-          </p>
-        </div>
-      </div>
-
-      <!-- Members grid -->
-      <div v-else class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <button
-          v-for="member in membersStore.members"
-          :key="member.id"
-          @click="toggleMember(member.id)"
-          :disabled="!selectedMemberIds.includes(member.id) && selectedMemberIds.length >= 4"
-          class="relative flex flex-col items-start p-3 rounded-xl border transition-all text-left"
-          :class="[
-            selectedMemberIds.includes(member.id)
-              ? 'border-green-500 bg-green-50 shadow-sm'
-              : selectedMemberIds.length >= 4
-              ? 'border-gray-100 bg-gray-50 opacity-40 cursor-not-allowed'
-              : 'border-gray-200 hover:border-green-300 hover:bg-gray-50 cursor-pointer'
-          ]"
-        >
-          <div
-            v-if="selectedMemberIds.includes(member.id)"
-            class="absolute top-2 right-2 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center"
-          >
-            <Check class="w-3 h-3 text-white" />
-          </div>
-          <span class="text-sm font-semibold text-gray-900 pr-7 leading-tight">{{ member.name }}</span>
-          <span class="text-xs text-gray-500 font-mono mt-1">{{ member.memberNumber }}</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Selected order summary -->
-    <Transition
-      enter-active-class="transition duration-150 ease-out"
-      enter-from-class="opacity-0 -translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
-    >
-      <div v-if="selectedMemberIds.length > 0" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <p class="text-sm font-semibold text-gray-900 mb-3">Geselecteerde leden (volgorde)</p>
-        <div class="flex flex-wrap gap-2">
-          <div
-            v-for="(id, i) in selectedMemberIds"
-            :key="id"
-            class="flex items-center gap-2 bg-green-50 text-green-800 px-3 py-1.5 rounded-full text-sm font-medium"
-          >
-            <span class="w-5 h-5 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
-              {{ i + 1 }}
-            </span>
-            {{ getMember(id)?.name }}
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- Validation hint -->
-    <div v-if="!isValid && (form.date || selectedMemberIds.length > 0)" class="flex items-center gap-2 text-sm text-amber-600">
-      <AlertCircle class="w-4 h-4 flex-shrink-0" />
-      <span>
-        <template v-if="!form.date">Kies een speeldatum. </template>
-        <template v-if="selectedMemberIds.length < 4">Selecteer nog {{ 4 - selectedMemberIds.length }} lid{{ 4 - selectedMemberIds.length !== 1 ? 'en' : '' }}. </template>
-      </span>
-    </div>
-
-    <!-- Submit -->
-    <button
-      @click="submit"
-      :disabled="!isValid"
-      class="w-full py-3.5 rounded-xl text-sm font-semibold transition-all"
-      :class="isValid
-        ? 'bg-green-500 hover:bg-green-400 text-white shadow-lg shadow-green-500/25'
-        : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
-    >
-      Reservering toevoegen aan wachtrij
+    <button @click="router.back()" data-reveal class="mb-6 inline-flex items-center gap-1 text-sm text-mist transition-colors hover:text-fog">
+      <ChevronLeft class="h-4 w-4" />Terug
     </button>
+
+    <PageHeader eyebrow="Reserveren" title="Nieuwe&#10;reservering" subtitle="Kies een baan, datum, tijdslot en vier maatjes. Wij doen de rest." />
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      <div class="space-y-6">
+
+        <!-- ── Stap 1: Baan ── -->
+        <section data-reveal class="panel p-6 sm:p-8" aria-labelledby="step-1">
+          <div class="mb-6 flex items-start justify-between gap-4">
+            <h2 id="step-1" class="flex items-baseline gap-4"><span class="display text-5xl text-lime">01</span><span class="display text-2xl text-fog">Kies baan</span></h2>
+            <span class="chip"><MapPin class="h-3.5 w-3.5 text-lime" />{{ LOCATION }}</span>
+          </div>
+
+          <div role="radiogroup" aria-labelledby="step-1" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <label
+              v-for="court in courtsStore.courts" :key="court.id"
+              class="group flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3.5 transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
+              :class="form.courtId === court.id ? 'border-lime bg-lime/10' : 'border-line hover:border-white/25 hover:bg-white/[0.04]'"
+            >
+              <input type="radio" :value="court.id" v-model="form.courtId" class="sr-only" />
+              <span class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors" :class="form.courtId === court.id ? 'border-lime' : 'border-mist/60'">
+                <span v-if="form.courtId === court.id" class="h-2 w-2 rounded-full bg-lime"></span>
+              </span>
+              <span class="flex-1 text-sm font-semibold" :class="form.courtId === court.id ? 'text-lime' : 'text-fog'">{{ court.name }}</span>
+              <span class="font-mono text-xs text-mist">#{{ court.number }}</span>
+            </label>
+          </div>
+        </section>
+
+        <!-- ── Stap 2: Datum + tijdslot ── -->
+        <section data-reveal class="panel overflow-hidden" aria-labelledby="step-2">
+          <div class="p-6 pb-0 sm:p-8 sm:pb-0">
+            <h2 id="step-2" class="flex items-baseline gap-4"><span class="display text-5xl text-lime">02</span><span class="display text-2xl text-fog">Datum &amp; tijdslot</span></h2>
+            <p v-if="!settings.isConfigured" class="note note-amber mt-4">
+              <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />Geen token ingesteld — beschikbaarheid kan niet worden opgehaald.
+            </p>
+          </div>
+
+          <!-- Calendar -->
+          <div class="border-b border-line p-6 sm:px-8">
+            <div class="mb-4 flex items-center justify-between">
+              <button @click="prevMonth" class="btn-icon !h-10 !w-10 border border-line" aria-label="Vorige maand"><ChevronLeft class="h-4 w-4" /></button>
+              <span class="display text-xl capitalize text-fog">{{ monthLabel }}</span>
+              <button @click="nextMonth" class="btn-icon !h-10 !w-10 border border-line" aria-label="Volgende maand"><ChevronRight class="h-4 w-4" /></button>
+            </div>
+            <div class="mb-1 grid grid-cols-7">
+              <div v-for="d in ['Ma','Di','Wo','Do','Vr','Za','Zo']" :key="d" class="eyebrow py-1.5 text-center">{{ d }}</div>
+            </div>
+            <div class="grid grid-cols-7 gap-1">
+              <button
+                v-for="({ d, cur }, i) in calDays" :key="i"
+                @click="cur && !isPast(d) && pickDate(d)"
+                :disabled="!cur || isPast(d)"
+                :aria-label="d.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })"
+                :aria-pressed="sameDay(d, selectedCalDate)"
+                class="relative flex aspect-square max-h-12 items-center justify-center rounded-full text-sm font-semibold tabular transition-all duration-300 ease-out-expo"
+                :class="[
+                  !cur ? 'invisible' : '',
+                  cur && isPast(d) ? 'cursor-not-allowed text-mist/35' : '',
+                  cur && !isPast(d) && !sameDay(d, selectedCalDate) ? 'text-fog hover:bg-white/10' : '',
+                  sameDay(d, selectedCalDate) ? 'scale-110 bg-lime text-ink shadow-[0_8px_30px_-6px_rgba(205,255,46,0.55)]' : '',
+                  sameDay(d, today) && !sameDay(d, selectedCalDate) ? 'ring-1 ring-lime/70' : '',
+                ]"
+              >{{ d.getDate() }}</button>
+            </div>
+          </div>
+
+          <!-- Slots -->
+          <div class="p-6 sm:p-8">
+            <p v-if="!form.date" class="py-6 text-center text-mist">Kies eerst een datum in de kalender.</p>
+
+            <div v-else-if="avLoading" class="flex items-center justify-center gap-3 py-8" role="status">
+              <div class="h-5 w-5 animate-spin rounded-full border-2 border-lime border-t-transparent"></div>
+              <span class="text-sm text-mist">Beschikbaarheid ophalen…</span>
+            </div>
+
+            <div v-else>
+              <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <p class="eyebrow !text-fog">
+                  {{ new Date(form.date + 'T12:00:00').toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' }) }}
+                </p>
+                <div class="flex items-center gap-4 text-xs text-mist">
+                  <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-lime"></span>Vrij</span>
+                  <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-danger"></span>Bezet</span>
+                  <button v-if="settings.isConfigured" @click="fetchSlots(new Date(form.date + 'T12:00:00'))" class="btn-icon !h-8 !w-8" aria-label="Ververs beschikbaarheid">
+                    <RefreshCw class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="avError" class="note note-amber mb-4">
+                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />{{ avError }}
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <template v-for="time in TIME_SLOTS" :key="time">
+                  <button
+                    v-if="slotInfo(time).status !== 'closed'"
+                    @click="pickSlot(time)"
+                    :disabled="slotInfo(time).status === 'booked'"
+                    :aria-pressed="form.timeSlot === time"
+                    class="flex min-w-[4.25rem] flex-col items-center rounded-2xl border px-3 py-2 text-sm font-semibold transition-all duration-300 ease-out-expo"
+                    :class="{
+                      'border-lime bg-lime text-ink shadow-[0_8px_30px_-8px_rgba(205,255,46,0.6)]': form.timeSlot === time,
+                      'border-lime/25 bg-lime/[0.07] text-lime hover:bg-lime/15': slotInfo(time).status === 'available' && form.timeSlot !== time,
+                      'cursor-not-allowed border-line bg-white/[0.02] text-mist/50 line-through': slotInfo(time).status === 'booked',
+                      'border-line bg-white/[0.04] text-mist hover:bg-white/10': slotInfo(time).status === 'unknown' && form.timeSlot !== time,
+                    }"
+                  >
+                    <span class="font-mono tabular">{{ time }}</span>
+                    <span v-if="slotInfo(time).status === 'available' || form.timeSlot === time" class="mt-0.5 flex gap-1">
+                      <span v-for="dur in slotInfo(time).durations" :key="dur" class="rounded px-1 font-mono text-[9px] font-bold" :class="form.timeSlot === time ? 'bg-ink/15' : 'bg-lime/15'">{{ dur }}'</span>
+                    </span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Stap 3: Speelduur + boekwijze ── -->
+        <section data-reveal class="panel p-6 sm:p-8" aria-labelledby="step-3">
+          <h2 id="step-3" class="mb-6 flex items-baseline gap-4"><span class="display text-5xl text-lime">03</span><span class="display text-2xl text-fog">Duur &amp; boekwijze</span></h2>
+
+          <div class="mb-7">
+            <div class="mb-3 flex flex-wrap items-center gap-3">
+              <span class="label !mb-0">Speelduur</span>
+              <span v-if="form.timeSlot && selectedSlotDurations.length === 1 && selectedSlotDurations[0] === 60" class="chip !border-amber/30 !bg-amber/10 !text-amber">
+                <Zap class="h-3 w-3" />Prime time — alleen {{ selectedSlotDurations[0] }} min
+              </span>
+            </div>
+            <div role="radiogroup" aria-label="Speelduur" class="flex flex-wrap gap-3">
+              <label
+                v-for="d in selectedSlotDurations" :key="d"
+                class="flex cursor-pointer select-none items-center gap-2.5 rounded-full border px-5 py-2.5 text-sm font-semibold transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
+                :class="form.duration === d ? 'border-lime bg-lime/10 text-lime' : 'border-line text-fog hover:border-white/25'"
+              >
+                <input type="radio" :value="d" v-model="form.duration" class="sr-only" />
+                <span class="flex h-4 w-4 items-center justify-center rounded-full border-2" :class="form.duration === d ? 'border-lime' : 'border-mist/60'">
+                  <span v-if="form.duration === d" class="h-2 w-2 rounded-full bg-lime"></span>
+                </span>
+                {{ d }} min
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <span class="label">Boekwijze</span>
+            <div role="radiogroup" aria-label="Boekwijze" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label
+                class="flex cursor-pointer flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
+                :class="bookingMode === 'vooruit' ? 'border-lime bg-lime/10' : 'border-line hover:border-white/25'"
+              >
+                <input type="radio" value="vooruit" v-model="bookingMode" class="sr-only" />
+                <span class="flex items-center gap-3">
+                  <span class="flex h-9 w-9 items-center justify-center rounded-full" :class="bookingMode === 'vooruit' ? 'bg-lime text-ink' : 'bg-white/10 text-mist'"><Timer class="h-4 w-4" /></span>
+                  <span class="display text-xl" :class="bookingMode === 'vooruit' ? 'text-lime' : 'text-fog'">Vooruit boeken</span>
+                </span>
+                <span class="text-sm leading-relaxed text-mist">Precies 72 uur voor het tijdslot, op de milliseconde.</span>
+              </label>
+              <label
+                class="flex cursor-pointer flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-sky/40"
+                :class="bookingMode === 'direct' ? 'border-sky bg-sky/10' : 'border-line hover:border-white/25'"
+              >
+                <input type="radio" value="direct" v-model="bookingMode" class="sr-only" />
+                <span class="flex items-center gap-3">
+                  <span class="flex h-9 w-9 items-center justify-center rounded-full" :class="bookingMode === 'direct' ? 'bg-sky text-ink' : 'bg-white/10 text-mist'"><Zap class="h-4 w-4" /></span>
+                  <span class="display text-xl" :class="bookingMode === 'direct' ? 'text-sky' : 'text-fog'">Direct boeken</span>
+                </span>
+                <span class="text-sm leading-relaxed text-mist">Probeert de baan meteen te plaatsen.</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Stap 4: Leden ── -->
+        <section data-reveal class="panel p-6 sm:p-8" aria-labelledby="step-4">
+          <div class="mb-6 flex items-start justify-between gap-4">
+            <h2 id="step-4" class="flex items-baseline gap-4"><span class="display text-5xl text-lime">04</span><span class="display text-2xl text-fog">Vier maatjes</span></h2>
+            <span class="chip tabular transition-colors" :class="selectedMemberIds.length === 4 ? '!border-lime/40 !bg-lime/10 !text-lime' : ''">{{ selectedMemberIds.length }} / 4</span>
+          </div>
+
+          <div v-if="membersStore.members.length === 0" class="note note-amber">
+            <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <div>
+              <p class="font-semibold">Nog geen leden toegevoegd</p>
+              <p class="mt-0.5 text-amber/80">Voeg eerst KNLTB lidnummers toe op de <RouterLink to="/leden" class="underline">Leden pagina</RouterLink>.</p>
+            </div>
+          </div>
+
+          <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <button
+              v-for="member in membersStore.members" :key="member.id"
+              @click="toggleMember(member.id)"
+              :disabled="!selectedMemberIds.includes(member.id) && selectedMemberIds.length >= 4"
+              :aria-pressed="selectedMemberIds.includes(member.id)"
+              class="relative flex flex-col items-start rounded-2xl border p-4 text-left transition-all duration-300 ease-out-expo"
+              :class="selectedMemberIds.includes(member.id)
+                ? 'border-lime bg-lime/10'
+                : selectedMemberIds.length >= 4
+                  ? 'cursor-not-allowed border-line opacity-35'
+                  : 'border-line hover:border-white/25 hover:bg-white/[0.04]'"
+            >
+              <span
+                v-if="selectedMemberIds.includes(member.id)"
+                class="display absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-lime text-sm text-ink"
+              >{{ selectedMemberIds.indexOf(member.id) + 1 }}</span>
+              <span class="pr-8 text-sm font-semibold leading-tight text-fog">{{ member.name }}</span>
+              <span class="mt-1.5 font-mono text-xs text-mist">{{ member.memberNumber || '—' }}</span>
+              <span v-if="!member.clubMemberId" class="mt-2 text-[11px] font-medium text-amber">geen UUID</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── Samenvatting (blijft in beeld) ── -->
+      <aside data-reveal class="lg:sticky lg:top-28">
+        <div class="panel-solid overflow-hidden">
+          <div class="border-b border-dashed border-line bg-lime px-6 py-5 text-ink">
+            <p class="eyebrow !text-ink/70">Jouw reservering</p>
+            <p class="display mt-1 text-4xl tabular">
+              <template v-if="form.timeSlot">{{ form.timeSlot }} <span class="text-xl opacity-60">· {{ form.duration }}′</span></template>
+              <span v-else class="text-2xl opacity-60">Kies een tijdslot</span>
+            </p>
+          </div>
+
+          <dl class="space-y-4 px-6 py-5 text-sm">
+            <div>
+              <dt class="eyebrow">Baan</dt>
+              <dd class="mt-1 font-semibold text-fog">{{ courtsStore.courts.find(c => c.id === form.courtId)?.name ?? '—' }}</dd>
+            </div>
+            <div>
+              <dt class="eyebrow">Datum</dt>
+              <dd class="mt-1 font-semibold text-fog">
+                {{ form.date ? new Date(form.date + 'T12:00:00').toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' }) : '—' }}
+              </dd>
+            </div>
+            <div>
+              <dt class="eyebrow">Maatjes</dt>
+              <dd class="mt-1.5 flex flex-wrap gap-1.5">
+                <span v-for="(id, i) in selectedMemberIds" :key="id" class="chip !border-lime/30 !bg-lime/10 !text-lime">
+                  <span class="font-mono text-[10px]">{{ i + 1 }}</span>{{ getMember(id)?.name }}
+                </span>
+                <span v-if="selectedMemberIds.length === 0" class="text-mist">—</span>
+              </dd>
+            </div>
+            <div v-if="computedTrigger" class="rounded-2xl border px-4 py-3" :class="bookingMode === 'direct' ? 'border-sky/30 bg-sky/10' : 'border-lime/30 bg-lime/10'">
+              <dt class="eyebrow" :class="bookingMode === 'direct' ? '!text-sky' : '!text-lime'">Boekmoment</dt>
+              <dd class="mt-1 text-sm font-semibold text-fog first-letter:uppercase">{{ formatTriggerPreview(computedTrigger) }}</dd>
+            </div>
+          </dl>
+
+          <div class="px-6 pb-6">
+            <div v-if="!isValid && (form.date || selectedMemberIds.length > 0)" class="mb-4 flex items-start gap-2 text-sm text-amber">
+              <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>
+                <template v-if="!form.date">Kies een speeldatum. </template>
+                <template v-else-if="!form.timeSlot">Kies een tijdslot. </template>
+                <template v-if="selectedMemberIds.length < 4">Selecteer nog {{ 4 - selectedMemberIds.length }} lid{{ 4 - selectedMemberIds.length !== 1 ? 'en' : '' }}.</template>
+              </span>
+            </div>
+            <button @click="submit" :disabled="!isValid" class="btn btn-primary w-full !py-4 text-base">
+              Aan wachtrij toevoegen <ArrowUpRight class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
 
   </div>
 </template>

@@ -2,23 +2,23 @@
 defineProps({ status: { type: String, required: true } })
 
 const config = {
-  pending:   { label: 'Wachtend',     dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border border-amber-200',   pulse: false },
-  active:    { label: 'Actief',       dot: 'bg-blue-500',   badge: 'bg-blue-50 text-blue-700 border border-blue-200',       pulse: true  },
-  reserved:  { label: 'Gereserveerd',dot: 'bg-green-500',  badge: 'bg-green-50 text-green-700 border border-green-200',    pulse: false },
-  failed:    { label: 'Mislukt',      dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border border-red-200',          pulse: false },
-  cancelled: { label: 'Geannuleerd', dot: 'bg-slate-400',  badge: 'bg-slate-100 text-slate-500 border border-slate-200',   pulse: false },
+  pending:   { label: 'Wachtend',     dot: 'bg-amber',  badge: 'border-amber/30 bg-amber/10 text-amber',   pulse: false },
+  active:    { label: 'Actief',       dot: 'bg-sky',    badge: 'border-sky/30 bg-sky/10 text-sky',         pulse: true  },
+  reserved:  { label: 'Gereserveerd', dot: 'bg-lime',   badge: 'border-lime/30 bg-lime/10 text-lime',      pulse: false },
+  failed:    { label: 'Mislukt',      dot: 'bg-danger', badge: 'border-danger/30 bg-danger/10 text-danger', pulse: false },
+  cancelled: { label: 'Geannuleerd',  dot: 'bg-mist',   badge: 'border-line bg-white/5 text-mist',         pulse: false },
 }
 </script>
 
 <template>
   <span
-    class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold"
-    :class="config[status]?.badge ?? 'bg-slate-100 text-slate-500'"
+    class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em]"
+    :class="config[status]?.badge ?? 'border-line bg-white/5 text-mist'"
   >
-    <span
-      class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-      :class="[config[status]?.dot ?? 'bg-slate-400', config[status]?.pulse ? 'animate-pulse' : '']"
-    ></span>
+    <span class="relative flex h-1.5 w-1.5 flex-shrink-0">
+      <span v-if="config[status]?.pulse" class="absolute inline-flex h-full w-full animate-pulse-ring rounded-full" :class="config[status]?.dot"></span>
+      <span class="relative inline-flex h-1.5 w-1.5 rounded-full" :class="config[status]?.dot ?? 'bg-mist'"></span>
+    </span>
     {{ config[status]?.label ?? status }}
   </span>
 </template>

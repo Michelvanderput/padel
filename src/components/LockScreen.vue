@@ -37,7 +37,7 @@ function attempt() {
     >
       <!-- Logo -->
       <div class="flex flex-col items-center mb-10">
-        <img src="/logo.png" alt="Padel Maatjes" class="w-20 h-20 rounded-full object-cover bg-white shadow-2xl mb-4" />
+        <img src="/logo.webp" alt="Padel Maatjes" class="w-20 h-20 rounded-full object-cover bg-white shadow-2xl mb-4" />
         <h1 class="text-2xl font-bold text-white">Padel Maatjes</h1>
         <p class="text-slate-400 text-sm mt-1">Ready Maastricht</p>
       </div>
