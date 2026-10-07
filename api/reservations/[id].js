@@ -1,25 +1,22 @@
-import { Redis } from '@upstash/redis'
 import { withErrors } from '../../server/handler.js'
-
-const redis = Redis.fromEnv()
-const KEY = 'knltb:reservations'
+import { readReservations, writeReservations } from '../../server/store.js'
 
 export default withErrors(async function handler(req, res) {
   const { id } = req.query
-  const reservations = await redis.get(KEY) ?? []
+  const reservations = await readReservations()
   const idx = reservations.findIndex(r => r.id === id)
 
   if (req.method === 'PATCH') {
     if (idx === -1) return res.status(404).json({ error: 'Not found' })
     Object.assign(reservations[idx], req.body)
-    await redis.set(KEY, reservations)
-    return res.json(reservations[idx])
+    const { list } = await writeReservations(reservations)
+    return res.json(list.find(r => r.id === id) ?? reservations[idx])
   }
 
   if (req.method === 'DELETE') {
     if (idx === -1) return res.status(404).json({ error: 'Not found' })
     reservations.splice(idx, 1)
-    await redis.set(KEY, reservations)
+    await writeReservations(reservations)
     return res.status(204).end()
   }
 

@@ -1,8 +1,6 @@
-import { Redis } from '@upstash/redis'
 import { createReservation } from '../../server/knltb.js'
+import { redis, readMeta, readReservations, writeReservations } from '../../server/store.js'
 
-const redis = Redis.fromEnv()
-const RES_KEY      = 'knltb:reservations'
 const MEMBERS_KEY  = 'knltb:members'
 const SETTINGS_KEY = 'knltb:settings'
 
@@ -18,11 +16,11 @@ const RETRY_MS     = 500     // tijd tussen boekpogingen als eerste poging niet 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 async function saveReservation(id, patch) {
-  const list = await redis.get(RES_KEY) ?? []
+  const list = await readReservations()
   const idx = list.findIndex(r => r.id === id)
   if (idx === -1) return null
   Object.assign(list[idx], patch)
-  await redis.set(RES_KEY, list)
+  await writeReservations(list)
   return list[idx]
 }
 
@@ -50,7 +48,7 @@ async function processReservation(reservation, settings, members, startedAt) {
   }
 
   // Herlaad vlak voor het boeken — annuleren/wijzigen kan intussen gebeurd zijn.
-  const fresh = (await redis.get(RES_KEY) ?? []).find(r => r.id === reservation.id)
+  const fresh = (await readReservations()).find(r => r.id === reservation.id)
   if (!fresh || (fresh.status !== 'pending' && fresh.status !== 'active')) return
 
   // Log de start_at die we gaan sturen ter verificatie (UTC-equivalent van Amsterdam speeltijd)
@@ -107,13 +105,20 @@ export default async function handler(req, res) {
 
     const startedAt = Date.now()
 
+    // Snelle uitweg: 1 kleine read (meta). Is er niets actiefs en het eerstvolgende boekmoment
+    // nog ver weg, dan hoeft de grote lijst, instellingen en ledenlijst niet gelezen te worden.
+    const meta = await readMeta()
+    if (meta && !meta.hasActive && (meta.nextDue == null || meta.nextDue - Date.now() > LOOKAHEAD_MS)) {
+      return res.status(200).json({ skipped: 'niets te doen', nextDue: meta.nextDue ? new Date(meta.nextDue).toISOString() : null })
+    }
+
     const settings = await redis.get(SETTINGS_KEY)
     if (!settings?.lisaToken || !settings?.clubId) {
       return res.status(200).json({ skipped: 'Geen server-side instellingen gevonden — sla /instellingen op.' })
     }
 
     const [reservations, members] = await Promise.all([
-      redis.get(RES_KEY) ?? [],
+      readReservations(),
       redis.get(MEMBERS_KEY) ?? []
     ])
 
@@ -129,11 +134,11 @@ export default async function handler(req, res) {
         await processReservation(reservation, settings, members ?? [], startedAt)
       } catch (procErr) {
         // Log de fout in de reservering zodat we het in de UI zien
-        const list = await redis.get(RES_KEY) ?? []
+        const list = await readReservations()
         const idx = list.findIndex(r => r.id === reservation.id)
         if (idx !== -1) {
           list[idx].logs = [...(list[idx].logs ?? []), { time: new Date().toISOString(), message: `💥 [server] Crash: ${procErr.message}` }]
-          await redis.set(RES_KEY, list)
+          await writeReservations(list)
         }
       }
       processed++

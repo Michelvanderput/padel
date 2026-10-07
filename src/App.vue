@@ -57,6 +57,9 @@ let removePageTransition = () => {}
 
 // ── Data + scheduler (ongewijzigd) ─────────────────────────────
 let refreshInterval = null
+let reservationsStoreRef = null
+// Alleen verversen als het tabblad zichtbaar is; bij terugkeren meteen één keer.
+const refreshIfVisible = () => { if (document.visibilityState === 'visible') reservationsStoreRef?.init() }
 
 onMounted(async () => {
   startSmoothScroll()
@@ -76,11 +79,16 @@ onMounted(async () => {
 
   // Server-side cron-worker kan reserveringen boeken zonder dat deze tab open staat —
   // periodiek verversen zorgt dat de UI die wijzigingen (bijna) live laat zien.
-  refreshInterval = setInterval(() => reservationsStore.init(), 10_000)
+  // Elke 30 s (was 10 s) en alleen zichtbaar: scheelt ~90% Redis-verkeer. Met ETag/304 in de API
+  // kost een ongewijzigde poll bovendien bijna niets.
+  reservationsStoreRef = reservationsStore
+  refreshInterval = setInterval(refreshIfVisible, 30_000)
+  document.addEventListener('visibilitychange', refreshIfVisible)
 })
 
 onBeforeUnmount(() => {
   clearInterval(refreshInterval)
+  document.removeEventListener('visibilitychange', refreshIfVisible)
   removePageTransition()
   window.removeEventListener('resize', movePill)
   stopSmoothScroll()
