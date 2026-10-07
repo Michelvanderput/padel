@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { prefersReducedMotion, hasFinePointer } from '@/lib/motion'
+import { introReady } from '@/lib/intro'
 
 const props = defineProps({
   mode:        { type: String,  default: 'hero' },   // 'hero' | 'showcase'
@@ -11,6 +12,7 @@ const emit = defineEmits(['ready', 'fallback'])
 
 const host   = ref(null)
 const canvas = ref(null)
+const shown  = ref(false)   // canvas faadt in zodra het eerste frame staat
 
 let scene = null
 let raf = 0
@@ -47,10 +49,14 @@ function onPointer(e) {
 
 onMounted(async () => {
   try {
-    // Three.js (±180 kB gzip) pas laden als de pagina al staat.
-    const { createRacketScene } = await import('@/lib/racket3d')
+    // Three.js (±150 kB gzip) downloaden we meteen (parallel aan de preloader), maar de
+    // scène bouwen en renderen we pas ná de preloader: zo blijft de teller soepel.
+    const loading = import('@/lib/racket3d')
+    await introReady
+    const { createRacketScene } = await loading
     if (disposed) return
-    scene = createRacketScene(canvas.value, { mode: props.mode, reduced })
+    scene = await createRacketScene(canvas.value, { mode: props.mode, reduced })
+    if (disposed) { scene.dispose(); scene = null; return }   // pagina al verlaten tijdens het compileren
   } catch (err) {
     console.warn('[RacketScene] WebGL niet beschikbaar, statische weergave', err)
     emit('fallback')
@@ -75,6 +81,7 @@ onMounted(async () => {
     raf = requestAnimationFrame(frame)
     if (props.interactive && hasFinePointer()) window.addEventListener('pointermove', onPointer, { passive: true })
   }
+  requestAnimationFrame(() => { shown.value = true })
   emit('ready')
 })
 
@@ -97,6 +104,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="host" class="absolute inset-0" aria-hidden="true">
-    <canvas ref="canvas" class="block h-full w-full"></canvas>
+    <canvas ref="canvas" class="block h-full w-full transition-opacity duration-[1200ms] ease-out-expo" :class="shown ? 'opacity-100' : 'opacity-0'"></canvas>
   </div>
 </template>

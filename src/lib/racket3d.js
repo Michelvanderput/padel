@@ -7,10 +7,10 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  * extra hoeft te downloaden. 1 eenheid ≈ 100 mm.
  * ──────────────────────────────────────────────────────────── */
 
-const W = 1.3          // halve breedte van de kop
+const W = 1.38         // halve breedte van de kop
 const H = 1.35         // halve hoogte van de kop
-const THROAT = 0.8     // lengte hals
-const HANDLE = 1.15    // lengte handvat
+const THROAT = 0.62    // lengte hals
+const HANDLE = 1.0    // lengte handvat
 
 export const VARIANTS = {
   lime: { frame: '#cdff2e', frameRough: 0.28, frameMetal: 0.1, inlay: '#0a0f0c', grip: '#161b18', band: '#cdff2e' },
@@ -110,7 +110,7 @@ function insidePolygon(p, poly) {
 
 // Perforaties in een zeshoekig raster, groter in het midden (sweet spot).
 function addPerforations(shape, inner) {
-  const dx = 0.27, dy = 0.235
+  const dx = 0.2, dy = 0.173
   for (let j = -7; j <= 7; j++) {
     for (let i = -7; i <= 7; i++) {
       const x = (i + (j % 2 ? 0.5 : 0)) * dx
@@ -119,7 +119,7 @@ function addPerforations(shape, inner) {
       const d = nx * nx + ny * ny
       if (d > 1) continue
       if (!insidePolygon(new THREE.Vector2(x, y), inner)) continue
-      const r = 0.092 - d * 0.034
+      const r = 0.06 - d * 0.02
       const hole = new THREE.Path()
       hole.absarc(x, y, r, 0, Math.PI * 2, true)
       shape.holes.push(hole)
@@ -178,7 +178,7 @@ export function buildRacketGeometries() {
   throat.translate(0, 0, -(T - 0.1) / 2)
 
   const handleTop = -H - THROAT
-  const handle = new THREE.CylinderGeometry(0.2, 0.185, HANDLE, 8, 1)
+  const handle = new THREE.CylinderGeometry(0.215, 0.2, HANDLE, 8, 1)
   handle.translate(0, handleTop - HANDLE / 2 + 0.02, 0)
   handle.scale(1, 1, 0.74)
 
@@ -189,7 +189,7 @@ export function buildRacketGeometries() {
   pommel.scale(1, 1, 0.78)
   pommel.translate(0, handleTop - HANDLE - 0.03, 0)
 
-  const lanyard = new THREE.TorusGeometry(0.15, 0.016, 10, 40)
+  const lanyard = new THREE.TorusGeometry(0.1, 0.014, 10, 40)
 
   return { face, frame, inlay, throat, handle, band, pommel, lanyard, handleTop }
 }
@@ -231,12 +231,12 @@ export function makeRacket(geo, mats) {
   const top = add(geo.band, mats.band)
   top.position.y = geo.handleTop - 0.02
   const lan = add(geo.lanyard, mats.band)
-  lan.position.set(0.05, geo.handleTop - HANDLE - 0.2, 0)
+  lan.position.set(0.05, geo.handleTop - HANDLE - 0.12, 0)
   lan.rotation.y = Math.PI / 2.4
 
   // Pivot ongeveer in het zwaartepunt: kop + hals.
   const wrap = new THREE.Group()
-  g.position.y = 1.1
+  g.position.y = 1.0
   wrap.add(g)
   return wrap
 }
@@ -280,7 +280,7 @@ const lerp = (a, b, t) => a + (b - a) * t
  * mode 'hero'     — drie rackets + ballen die zweven, volgt de muis
  * mode 'showcase' — één racket dat met de scrollvoortgang draait
  */
-export function createRacketScene(canvas, { mode = 'hero', reduced = false } = {}) {
+export async function createRacketScene(canvas, { mode = 'hero', reduced = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.setClearColor(0x000000, 0)
@@ -437,6 +437,9 @@ export function createRacketScene(canvas, { mode = 'hero', reduced = false } = {
   }
 
   layout()
+
+  // Shaders parallel compileren (KHR_parallel_shader_compile) i.p.v. de hoofdthread te blokkeren
+  try { await renderer.compileAsync(scene, camera) } catch (_) { /* valt terug op compileren bij het eerste frame */ }
 
   function render() { renderer.render(scene, camera) }
 
