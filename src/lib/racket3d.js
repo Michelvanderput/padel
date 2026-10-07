@@ -11,7 +11,7 @@ const RX = 1.3         // halve breedte van de kop (260 mm)
 const RY = 1.4         // halve hoogte van het ronde deel
 const CY = 0.1         // middelpunt van het ronde deel
 const NECK_Y = -2.05   // waar de hals in het handvat overgaat
-const NECK_W = 0.24    // halve breedte onderaan de hals
+const NECK_W = 0.23    // halve breedte van het handvat (en einde van de hals)
 const HANDLE = 1.0     // lengte handvat
 
 export const VARIANTS = {
@@ -87,32 +87,57 @@ function feltBump() {
 
 /* ── Vormen ──────────────────────────────────────────────── */
 
-// Kop + hals als één druppel-silhouet: ellips bovenin, daarna rechte lijnen die
-// (zoals op echte rackets) in een V naar het handvat lopen.
+// Kop + hals als één druppel-silhouet: ellips bovenin, rechte lijnen naar beneden, en dan
+// een zachte S-bocht die tangent-continu in de rechte handvatranden overgaat (geen knik).
+const LINE_TARGET = new THREE.Vector2(0.1, -2.4)   // virtueel punt dat de helling van de V bepaalt
+const FILLET_Y = -1.5                              // hier begint de overgang naar het handvat
+
 function tangentAngle() {
-  // punt op de ellips waar de raaklijn naar de halsrand (sign * NECK_W, NECK_Y) vertrekt
-  const sign = 1, nx = NECK_W, ny = NECK_Y
+  const nx = LINE_TARGET.x, ny = LINE_TARGET.y
   let best = 0, bestErr = Infinity
   for (let i = 0; i <= 2000; i++) {
-    const th = -Math.PI / 2 + (sign * (i / 2000) * Math.PI / 2)   // onder → zijkant
+    const th = -Math.PI / 2 + (i / 2000) * Math.PI / 2   // onder → zijkant (rechts)
     const px = RX * Math.cos(th), py = CY + RY * Math.sin(th)
-    const tx = -RX * Math.sin(th), ty = RY * Math.cos(th)         // raakvector
+    const tx = -RX * Math.sin(th), ty = RY * Math.cos(th)
     const err = Math.abs((nx - px) * ty - (ny - py) * tx) / Math.hypot(tx, ty)
     if (err < bestErr) { bestErr = err; best = th }
   }
   return best
 }
 
-function headOutline(scale = 1, n = 140) {
+const INNER_END_Y = -1.75   // binnenvormen eindigen hier; daaronder blijft het frame massief
+
+// trimmed=true: alleen de kop + rechte V-lijnen tot INNER_END_Y (voor face/ring-gat)
+function headOutline(scale = 1, n = 140, trimmed = false) {
   const r = tangentAngle()
+  const T = new THREE.Vector2(RX * Math.cos(r), CY + RY * Math.sin(r))
+  const dir = LINE_TARGET.clone().sub(T).normalize()
+  const P0 = T.clone().add(dir.clone().multiplyScalar((FILLET_Y - T.y) / dir.y))     // op de rechte lijn
+  const curve = new THREE.CubicBezierCurve(
+    P0, P0.clone().add(dir.clone().multiplyScalar(0.35)),
+    new THREE.Vector2(NECK_W, NECK_Y + 0.4), new THREE.Vector2(NECK_W, NECK_Y),
+  )
+  if (trimmed) {
+    const E = T.clone().add(dir.clone().multiplyScalar((INNER_END_Y - T.y) / dir.y))
+    const arc = []
+    for (let i = 0; i <= n; i++) {
+      const th = r + (Math.PI - 2 * r) * (i / n)
+      arc.push(new THREE.Vector2(RX * Math.cos(th), CY + RY * Math.sin(th)))
+    }
+    arc.push(new THREE.Vector2(-E.x, E.y), new THREE.Vector2(E.x, E.y))
+    return arc.map(p => new THREE.Vector2(p.x * scale, CY + (p.y - CY) * scale))
+  }
+  const down = curve.getPoints(28)                        // P0 → handvatrand, rechts
+  const left = down.map(p => new THREE.Vector2(-p.x, p.y))          // links: van boven naar de handvatrand
+  const right = [...down].reverse()                                  // rechts: van de handvatrand terug omhoog
+
   const pts = []
-  // ellipsboog van rechts-onder, over de bovenkant, naar links-onder
   const start = r, end = Math.PI - r
-  for (let i = 0; i <= n; i++) {
+  for (let i = 0; i <= n; i++) {                          // boog: rechts-onder → bovenkant → links-onder
     const th = start + (end - start) * (i / n)
     pts.push(new THREE.Vector2(RX * Math.cos(th), CY + RY * Math.sin(th)))
   }
-  pts.push(new THREE.Vector2(-NECK_W, NECK_Y), new THREE.Vector2(NECK_W, NECK_Y))
+  pts.push(...left, ...right)
   return pts.map(p => new THREE.Vector2(p.x * scale, CY + (p.y - CY) * scale))
 }
 
@@ -160,26 +185,39 @@ function addPerforations(shape, inner) {
   }
 }
 
+// Open boog (alleen de kop, tot de raakpunten) voor de accentlijn
+function arcRing(outerScale, innerScale) {
+  const r = tangentAngle(), n = 120
+  const pt = (sc, th) => new THREE.Vector2(RX * Math.cos(th) * sc, CY + RY * Math.sin(th) * sc)
+  const outer = [], inner = []
+  for (let i = 0; i <= n; i++) {
+    const th = r + (Math.PI - 2 * r) * (i / n)
+    outer.push(pt(outerScale, th)); inner.push(pt(innerScale, th))
+  }
+  return new THREE.Shape([...outer, ...inner.reverse()])
+}
+
 function ringShape(outerScale, innerScale) {
   const s = new THREE.Shape(headOutline(outerScale))
-  s.holes.push(new THREE.Path(headOutline(innerScale).reverse()))
+  s.holes.push(new THREE.Path(headOutline(innerScale, 140, true).reverse()))
   return s
 }
 
 /* ── Geometrie (één keer gebouwd, gedeeld door alle rackets) ─ */
 
 export function buildRacketGeometries() {
-  const innerRing = headOutline(0.86)
+  const innerRing = headOutline(0.86, 140, true)
 
-  const faceShape = new THREE.Shape(headOutline(0.9))
+  const faceShape = new THREE.Shape(headOutline(0.9, 140, true))
   addPerforations(faceShape, innerRing)
-  faceShape.holes.push(roundedTriangle(CY - 0.82, CY - 1.6, 0.42, 0.08))
+  faceShape.holes.push(roundedTriangle(CY - 0.8, CY - 1.5, 0.34, 0.07))
 
   // Een padelracket is één vlakke plaat (±38 mm): de gekleurde rand ligt gelijk met het
   // vlak, geen opstaande buis zoals bij tennis.
   const T = 0.38
-  const face = new THREE.ExtrudeGeometry(faceShape, { depth: T, bevelEnabled: false, curveSegments: 14 })
-  face.translate(0, 0, -T / 2)
+  const FT = T - 0.01   // iets onder het frame: voorkomt z-fighting op de overlap
+  const face = new THREE.ExtrudeGeometry(faceShape, { depth: FT, bevelEnabled: false, curveSegments: 14 })
+  face.translate(0, 0, -FT / 2)
 
   const frame = new THREE.ExtrudeGeometry(ringShape(1, 0.86), {
     depth: T - 0.08, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.035, bevelSegments: 4, curveSegments: 24,
@@ -187,12 +225,18 @@ export function buildRacketGeometries() {
   frame.translate(0, 0, -(T - 0.08) / 2)
 
   // dunne accentlijn op de rand, óók gelijk met het vlak
-  const inlay = new THREE.ExtrudeGeometry(ringShape(0.88, 0.865), { depth: T + 0.004, bevelEnabled: false, curveSegments: 24 })
+  const inlay = new THREE.ExtrudeGeometry(arcRing(0.88, 0.865), { depth: T + 0.004, bevelEnabled: false, curveSegments: 24 })
   inlay.translate(0, 0, -(T + 0.004) / 2)
 
   const handleTop = NECK_Y
-  const handle = new THREE.BoxGeometry(0.46, HANDLE, 0.3, 1, 1, 1)
-  handle.translate(0, handleTop - HANDLE / 2 + 0.02, 0)
+  // handvaat: afgeronde extrusie, loopt aan de bovenkant 0.3 in het frame door (verborgen)
+  const hw = NECK_W, y0 = handleTop + 0.12, y1 = handleTop - HANDLE, rr = 0.09
+  const hs = new THREE.Shape()
+  hs.moveTo(-hw, y0); hs.lineTo(hw, y0); hs.lineTo(hw, y1 + rr)
+  hs.quadraticCurveTo(hw, y1, hw - rr, y1); hs.lineTo(-hw + rr, y1)
+  hs.quadraticCurveTo(-hw, y1, -hw, y1 + rr); hs.lineTo(-hw, y0)
+  const handle = new THREE.ExtrudeGeometry(hs, { depth: 0.26, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.03, bevelSegments: 3, curveSegments: 8 })
+  handle.translate(0, 0, -0.13)
 
   const band = new THREE.BoxGeometry(0.475, 0.07, 0.32)
 
