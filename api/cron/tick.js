@@ -12,6 +12,10 @@ const SETTINGS_KEY = 'knltb:settings'
 const LOOKAHEAD_MS = 90_000  // hoever vooruit kijken per tick (>60s om cron-jitter op te vangen)
 const BUDGET_MS    = 58_000  // max. tijd die deze invocatie mag gebruiken (< maxDuration)
 const RETRY_MS     = 500     // tijd tussen boekpogingen als eerste poging niet lukt
+// Na dit venster (gerekend vanaf het openen van het boekvenster) geven we op. Zonder deze grens
+// zette elke tick een onboekbare reservering terug op 'pending' en probeerde de volgende tick het
+// opnieuw — elke minuut, voor altijd, met telkens volledige lees-/schrijfacties op Redis.
+const GIVE_UP_MS   = 5 * 60_000
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -41,6 +45,13 @@ async function processReservation(reservation, settings, members, startedAt) {
   // Slaap tot EXACT 72 uur voor speeltijd — dat is het moment het KNLTB-venster opengaat
   const openMs  = playMs - 72 * 60 * 60 * 1000
   const delay   = openMs - Date.now()
+  const giveUpAt = openMs + GIVE_UP_MS
+
+  if (Date.now() > giveUpAt) {
+    pushLog(logs, `✗ [server] Boekvenster langer dan ${GIVE_UP_MS / 60_000} minuten open zonder succes — opgegeven.`)
+    await saveReservation(reservation.id, { status: 'failed', logs })
+    return
+  }
 
   if (delay > 0) {
     const budgetLeft = BUDGET_MS - (Date.now() - startedAt) - 500
@@ -67,7 +78,7 @@ async function processReservation(reservation, settings, members, startedAt) {
   }
 
   let attempt = 0
-  while (Date.now() - startedAt < BUDGET_MS) {
+  while (Date.now() - startedAt < BUDGET_MS && Date.now() < giveUpAt) {
     attempt++
     try {
       const result = await createReservation(settings.clubId, {
@@ -89,6 +100,12 @@ async function processReservation(reservation, settings, members, startedAt) {
     }
 
     await sleep(RETRY_MS)
+  }
+
+  if (Date.now() >= giveUpAt) {
+    pushLog(logs, `✗ [server] Geen succes binnen ${GIVE_UP_MS / 60_000} minuten na openen boekvenster (${attempt} pogingen) — opgegeven.`)
+    await saveReservation(reservation.id, { status: 'failed', logs })
+    return
   }
 
   // Tijdsbudget van deze tick op — status blijft 'active', volgende tick pakt het weer op.
