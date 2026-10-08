@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Calendar, Clock, Users, Trash2, Plus, ChevronDown, ChevronUp, AlertTriangle, Ban } from '@lucide/vue'
+import { Calendar, Clock, Users, KeyRound, Trash2, Plus, ChevronDown, ChevronUp, AlertTriangle, Ban } from '@lucide/vue'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { cancelScheduled } from '@/services/scheduler'
@@ -67,6 +67,10 @@ function formatDate(str) {
 
 function formatTrigger(iso) {
   return new Date(iso).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+function formatClock(iso) {
+  return new Date(iso).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatLogTime(iso) {
@@ -147,11 +151,16 @@ function doDelete() {
               <div class="mb-3 flex flex-wrap items-center gap-2.5">
                 <h2 class="truncate text-lg font-semibold text-fog">{{ getCourtName(res.courtId) }}</h2>
                 <StatusBadge :status="res.status" />
+                <span v-if="(res.minDuration ?? 60) > 60" class="chip !border-sky/30 !bg-sky/10 !text-sky" title="Wordt alleen geboekt als KNLTB minimaal 90 minuten geeft">min. {{ res.minDuration }} min</span>
               </div>
 
               <div class="space-y-2 text-sm text-mist">
                 <p class="flex items-center gap-2.5"><Calendar class="h-3.5 w-3.5 flex-shrink-0" /><span>{{ formatDate(res.date) }}</span></p>
-                <p class="flex items-center gap-2.5"><Clock class="h-3.5 w-3.5 flex-shrink-0" /><span><span class="font-mono text-fog">{{ res.timeSlot }}</span> · boekt op <span class="font-medium text-fog">{{ formatTrigger(res.bookingTrigger) }}</span></span></p>
+                <p class="flex items-center gap-2.5"><Clock class="h-3.5 w-3.5 flex-shrink-0" /><span><span class="font-mono text-fog">{{ res.timeSlot }}<template v-if="res.knltb?.endTime">–{{ formatClock(res.knltb.endTime) }}</template></span> · boekt op <span class="font-medium text-fog">{{ formatTrigger(res.bookingTrigger) }}</span></span></p>
+                <p v-if="res.knltb?.pincode" class="flex items-center gap-2.5">
+                  <KeyRound class="h-3.5 w-3.5 flex-shrink-0 text-lime" />
+                  <span>Pincode baan <span class="font-mono text-base font-semibold tracking-[0.2em] text-lime">{{ res.knltb.pincode }}</span></span>
+                </p>
                 <div class="flex items-start gap-2.5">
                   <Users class="mt-1 h-3.5 w-3.5 flex-shrink-0" />
                   <div class="flex flex-wrap gap-1.5">

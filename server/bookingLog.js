@@ -19,6 +19,15 @@ export function tooEarlyInfo(data, now = Date.now()) {
 export const fmtTime = ms =>
   new Date(ms).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
+export const fmtClock = ms =>
+  new Date(ms).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' })
+
+/** Duur in minuten uit een geslaagde proefboeking (validate): end_at − start_at. */
+export function durationFromValidate(data) {
+  const ms = new Date(data?.end_at).getTime() - new Date(data?.start_at).getTime()
+  return Number.isFinite(ms) && ms > 0 ? Math.round(ms / 60000) : null
+}
+
 /** Korte beschrijving van een mislukte KNLTB-respons (i.p.v. 2000 tekens JSON). */
 export function describeFailure(data, max = 220) {
   if (data == null) return 'geen details'

@@ -7,6 +7,7 @@ import { useMembersStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
 import { scheduleReservation } from '@/services/scheduler'
 import { getAvailability } from '@/services/knltb'
+import { buildSlotMap, effectiveDuration, TIME_SLOTS } from '@/services/availability'
 import { useCourtsStore } from '@/stores/courts'
 import { LOCATION } from '@/constants/courts'
 import PageHeader from '@/components/PageHeader.vue'
@@ -26,7 +27,8 @@ const courtsStore       = useCourtsStore()
 const form = ref({
   date:     route.query.date  || '',
   timeSlot: route.query.time  || '',
-  duration: 60,
+  duration: 90,      // KNLTB bepaalt de duur zelf (meestal 90)
+  minDuration: 60,   // 90 = alleen boeken als KNLTB minimaal 90 minuten geeft
   courtId:  route.query.court || courtsStore.courts[0]?.id || '',
 })
 
@@ -60,7 +62,7 @@ async function submit() {
   if (!isValid.value) return
   const newRes = await reservationsStore.addReservation({
     location: LOCATION, date: form.value.date, timeSlot: form.value.timeSlot,
-    duration: form.value.duration, courtId: form.value.courtId,
+    duration: form.value.duration, minDuration: form.value.minDuration, courtId: form.value.courtId,
     bookingTrigger: computedTrigger.value, memberIds: [...selectedMemberIds.value]
   })
   if (newRes) scheduleReservation(newRes)
@@ -103,70 +105,21 @@ async function pickDate(d) {
 }
 
 // ── Availability ─────────────────────────────────────────────
-// slotMap: localTime (HH:MM) → { status: 'available'|'booked'|'closed', durations: number[] }
-const TIME_SLOTS = []
-for (let h = 7; h <= 21; h++) { TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`); TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`) }
-TIME_SLOTS.push('22:00')
-
+// slotMap: Amsterdamse tijd (HH:MM) → { status, durations, opensAt? } — zie services/availability.js
 const avLoading = ref(false)
 const avError   = ref(null)
 const rawApiData = ref(null) // full response cached for court switching
 const slotMap   = ref({})
-
-function localKey(isoStr) {
-  const d = new Date(isoStr)
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-}
-
-function buildSlotMap(data, courtId) {
-  const map = {}
-
-  const courtEntry = data?.timeline_court_availability?.find(
-    c => c.court_details?.id === courtId
-  )
-  if (!courtEntry) return map
-
-  for (const block of (courtEntry.timeline?.blocks ?? [])) {
-    if (block.block_type === 'available' && block.slots) {
-      const fourP = block.slots['4players'] ?? []
-      for (const slot of fourP) {
-        if (!slot.available) continue
-        const key = localKey(slot.start_time)
-        const dur = Math.round((new Date(slot.end_time) - new Date(slot.start_time)) / 60000)
-        if (!map[key]) map[key] = { status: 'available', durations: [] }
-        if (!map[key].durations.includes(dur)) map[key].durations.push(dur)
-        // Als 90 min beschikbaar is, is 60 min altijd ook boekbaar (per definitie niet prime time)
-        if (dur === 90 && !map[key].durations.includes(60)) map[key].durations.unshift(60)
-      }
-    } else if (block.block_type === 'reservation') {
-      const cur = new Date(block.start)
-      const end = new Date(block.end)
-      while (cur < end) {
-        const key = `${String(cur.getHours()).padStart(2,'0')}:${String(cur.getMinutes()).padStart(2,'0')}`
-        map[key] = { status: 'booked', durations: [] }
-        cur.setMinutes(cur.getMinutes() + 30)
-      }
-    } else if (block.block_type === 'courtClosedByOpeningHours') {
-      const cur = new Date(block.start)
-      const end = new Date(block.end)
-      while (cur < end) {
-        const key = `${String(cur.getHours()).padStart(2,'0')}:${String(cur.getMinutes()).padStart(2,'0')}`
-        if (!map[key]) map[key] = { status: 'closed', durations: [] }
-        cur.setMinutes(cur.getMinutes() + 30)
-      }
-    }
-  }
-  return map
-}
 
 async function fetchSlots(d) {
   if (!settings.isConfigured) { slotMap.value = {}; return }
   avLoading.value = true; avError.value = null; slotMap.value = {}; rawApiData.value = null
   try {
     const res = await getAvailability(settings.clubId, `${toDateStr(d)}T00:00:00`, settings.lisaToken)
-    if (!res.ok) { avError.value = `API fout ${res.status}`; return }
+    if (!res.ok) { avError.value = res.status === 401 ? 'Token ongeldig of verlopen — vernieuw het bij Instellingen' : `API fout ${res.status}`; return }
     rawApiData.value = res.data
     slotMap.value = buildSlotMap(res.data, form.value.courtId)
+    syncDuration()
   } catch (e) { avError.value = e.message }
   finally { avLoading.value = false }
 }
@@ -177,29 +130,34 @@ function slotInfo(time) {
   return slotMap.value[time] ?? { status: 'unknown', durations: [] }
 }
 
-function pickSlot(time) {
-  const info = slotInfo(time)
-  if (info.status === 'booked' || info.status === 'closed') return
-  form.value.timeSlot = time
-  // Auto-select duration if only one option available
-  if (info.durations.length === 1) form.value.duration = info.durations[0]
-  else if (info.durations.length > 1 && !info.durations.includes(form.value.duration)) {
-    form.value.duration = info.durations[0]
-  }
+// De duur wordt door KNLTB bepaald (langste slot dat op dit startpunt past); meesturen heeft geen effect.
+function syncDuration() {
+  form.value.duration = effectiveDuration(slotInfo(form.value.timeSlot))
 }
 
-// Available durations for the currently selected time slot
-const selectedSlotDurations = computed(() => {
-  if (!form.value.timeSlot) return [60, 90]
-  const d = slotInfo(form.value.timeSlot).durations
-  return d.length > 0 ? d : [60, 90]
-})
+function pickSlot(time) {
+  const info = slotInfo(time)
+  if (['booked', 'closed', 'buffer', 'short'].includes(info.status)) return
+  form.value.timeSlot = time
+  syncDuration()
+}
+
+function slotTitle(time) {
+  const i = slotInfo(time)
+  const label = { booked: 'Bezet', short: 'Te kort (minder dan 60 min vrij)', buffer: 'Wisseltijd na een vorige boeking', closed: 'Baan dicht' }[i.status]
+  if (label) return label
+  if (i.status === 'later') return `Nog niet te boeken — opent ${new Date(i.opensAt).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })}`
+  return ''
+}
+
+const unavailable = status => ['booked', 'closed', 'buffer', 'short'].includes(status)
 
 // Rebuild slotMap when court changes (data already cached)
 watch(() => form.value.courtId, () => {
   if (rawApiData.value) {
     slotMap.value = buildSlotMap(rawApiData.value, form.value.courtId)
     form.value.timeSlot = ''
+    syncDuration()
   } else if (form.value.date) {
     fetchSlots(new Date(form.value.date + 'T12:00:00'))
   }
@@ -314,14 +272,16 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
                   <button
                     v-if="slotInfo(time).status !== 'closed'"
                     @click="pickSlot(time)"
-                    :disabled="slotInfo(time).status === 'booked'"
+                    :disabled="unavailable(slotInfo(time).status)"
                     :aria-pressed="form.timeSlot === time"
+                    :title="slotTitle(time)"
                     class="flex min-w-[4.25rem] flex-col items-center rounded-2xl border px-3 py-2 text-sm font-semibold transition-all duration-300 ease-out-expo"
                     :class="{
                       'border-lime bg-lime text-ink shadow-[0_8px_30px_-8px_rgba(205,255,46,0.6)]': form.timeSlot === time,
                       'border-lime/25 bg-lime/[0.07] text-lime hover:bg-lime/15': slotInfo(time).status === 'available' && form.timeSlot !== time,
-                      'cursor-not-allowed border-line bg-white/[0.02] text-mist/50 line-through': slotInfo(time).status === 'booked',
-                      'border-line bg-white/[0.04] text-mist hover:bg-white/10': slotInfo(time).status === 'unknown' && form.timeSlot !== time,
+                      'cursor-not-allowed border-line bg-white/[0.02] text-mist/50 line-through': ['booked', 'short'].includes(slotInfo(time).status),
+                      'cursor-not-allowed border-dashed border-line bg-white/[0.02] text-mist/50': slotInfo(time).status === 'buffer',
+                      'border-line bg-white/[0.04] text-mist hover:bg-white/10': ['unknown', 'later'].includes(slotInfo(time).status) && form.timeSlot !== time,
                     }"
                   >
                     <span class="font-mono tabular">{{ time }}</span>
@@ -340,25 +300,37 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
           <h2 id="step-3" class="mb-6 flex items-baseline gap-4"><span class="display text-5xl text-lime">03</span><span class="display text-2xl text-fog">Duur &amp; boekwijze</span></h2>
 
           <div class="mb-7">
-            <div class="mb-3 flex flex-wrap items-center gap-3">
-              <span class="label !mb-0">Speelduur</span>
-              <span v-if="form.timeSlot && selectedSlotDurations.length === 1 && selectedSlotDurations[0] === 60" class="chip !border-amber/30 !bg-amber/10 !text-amber">
-                <Zap class="h-3 w-3" />Prime time — alleen {{ selectedSlotDurations[0] }} min
-              </span>
+            <span class="label">Speelduur</span>
+            <div class="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-white/[0.03] px-5 py-4">
+              <Timer class="h-4 w-4 flex-shrink-0 text-lime" />
+              <p class="text-sm text-mist">
+                <template v-if="form.timeSlot && slotInfo(form.timeSlot).durations.length">
+                  KNLTB boekt hier <strong class="text-fog">{{ form.duration }} minuten</strong>
+                  <template v-if="form.duration === 60"> (prime time)</template>.
+                </template>
+                <template v-else>De duur wordt door KNLTB bepaald: <strong class="text-fog">meestal 90 minuten</strong>, op prime time 60.</template>
+                <span class="text-mist/80"> Dit kun je niet zelf kiezen.</span>
+              </p>
             </div>
-            <div role="radiogroup" aria-label="Speelduur" class="flex flex-wrap gap-3">
-              <label
-                v-for="d in selectedSlotDurations" :key="d"
-                class="flex cursor-pointer select-none items-center gap-2.5 rounded-full border px-5 py-2.5 text-sm font-semibold transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
-                :class="form.duration === d ? 'border-lime bg-lime/10 text-lime' : 'border-line text-fog hover:border-white/25'"
-              >
-                <input type="radio" :value="d" v-model="form.duration" class="sr-only" />
-                <span class="flex h-4 w-4 items-center justify-center rounded-full border-2" :class="form.duration === d ? 'border-lime' : 'border-mist/60'">
-                  <span v-if="form.duration === d" class="h-2 w-2 rounded-full bg-lime"></span>
-                </span>
-                {{ d }} min
+
+            <!-- Controle vóór het boeken: sommige tijden geven alleen 60 minuten (prime time) -->
+            <div role="radiogroup" aria-label="Minimale duur" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label class="flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
+                :class="form.minDuration === 60 ? 'border-lime bg-lime/10' : 'border-line hover:border-white/25'">
+                <input type="radio" :value="60" v-model="form.minDuration" class="sr-only" />
+                <span class="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2" :class="form.minDuration === 60 ? 'border-lime' : 'border-mist/60'"><span v-if="form.minDuration === 60" class="h-2 w-2 rounded-full bg-lime"></span></span>
+                <span><span class="block text-sm font-semibold" :class="form.minDuration === 60 ? 'text-lime' : 'text-fog'">Boek altijd</span><span class="mt-0.5 block text-xs text-mist">60 of 90 minuten, wat KNLTB geeft.</span></span>
+              </label>
+              <label class="flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition-all duration-300 ease-out-expo focus-within:ring-2 focus-within:ring-lime/40"
+                :class="form.minDuration === 90 ? 'border-lime bg-lime/10' : 'border-line hover:border-white/25'">
+                <input type="radio" :value="90" v-model="form.minDuration" class="sr-only" />
+                <span class="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2" :class="form.minDuration === 90 ? 'border-lime' : 'border-mist/60'"><span v-if="form.minDuration === 90" class="h-2 w-2 rounded-full bg-lime"></span></span>
+                <span><span class="block text-sm font-semibold" :class="form.minDuration === 90 ? 'text-lime' : 'text-fog'">Alleen als het 90 min kan</span><span class="mt-0.5 block text-xs text-mist">Vlak vóór het boeken vraagt de app KNLTB de duur; bij 60 minuten wordt er niet geboekt.</span></span>
               </label>
             </div>
+            <p v-if="form.minDuration === 90 && form.timeSlot && slotInfo(form.timeSlot).durations.length && effectiveDuration(slotInfo(form.timeSlot)) < 90" class="note note-amber mt-3">
+              <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />Op dit tijdstip is nu alleen {{ effectiveDuration(slotInfo(form.timeSlot)) }} minuten te boeken — er wordt dan niet geboekt.
+            </p>
           </div>
 
           <div>

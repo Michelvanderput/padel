@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { ChevronLeft, ChevronRight, RefreshCw, AlertCircle, Zap, CalendarDays } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 import { getAvailability } from '@/services/knltb'
+import { buildSlotMap, TIME_SLOTS } from '@/services/availability'
 import { useSettingsStore } from '@/stores/settings'
 import { useCourtsStore } from '@/stores/courts'
 import PageHeader from '@/components/PageHeader.vue'
@@ -50,94 +51,49 @@ function past(d) { const c = new Date(d); c.setHours(23,59,59); return c < today
 // ── Court selector ───────────────────────────────────────────
 const selectedCourt = ref(courtsStore.courts[0]?.id || '')
 
-// ── Time slots ───────────────────────────────────────────────
-const TIME_SLOTS = []
-for (let h = 7; h <= 21; h++) {
-  TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`)
-  TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`)
-}
-TIME_SLOTS.push('22:00')
-
 // ── API ──────────────────────────────────────────────────────
 const loading  = ref(false)
 const apiError = ref(null)
 const rawData  = ref(null)
 const showRaw  = ref(false)
 
-// Map: time → courtId → 'available'|'booked'
-const grid = ref({})
-
-function initGrid() {
-  const g = {}
-  for (const t of TIME_SLOTS) { g[t] = {}; for (const c of courtsStore.courts) g[t][c.id] = 'available' }
-  return g
-}
-
-function parseResponse(data) {
-  const g = initGrid()
-  const items =
-    (Array.isArray(data) ? data : null) ??
-    data?.reservations ?? data?.slots ?? data?.data ?? data?.timeline ?? []
-
-  if (!Array.isArray(items)) return { g, ok: false }
-
-  let hits = 0
-  for (const item of items) {
-    const courtId = item.court_id ?? item.courtId
-    const startAt = item.start_at ?? item.start
-    const endAt   = item.end_at   ?? item.end
-    if (!startAt) continue
-    hits++
-
-    const isBooked = item.available === undefined ? true : (item.available === false)
-    if (!isBooked) continue
-
-    const cur = new Date(startAt)
-    const end = endAt ? new Date(endAt) : new Date(cur.getTime() + 30 * 60 * 1000)
-    while (cur < end) {
-      const key = `${String(cur.getHours()).padStart(2,'0')}:${String(cur.getMinutes()).padStart(2,'0')}`
-      if (g[key]) {
-        if (courtId && g[key][courtId] !== undefined) g[key][courtId] = 'booked'
-        else if (!courtId) for (const c of courtsStore.courts) g[key][c.id] = 'booked'
-      }
-      cur.setMinutes(cur.getMinutes() + 30)
-    }
-  }
-  return { g, ok: hits > 0 }
-}
+// Per baan een tijdslot-kaart uit hetzelfde antwoord (zie services/availability.js)
+const maps = computed(() => {
+  const out = {}
+  if (!rawData.value) return out
+  for (const c of courtsStore.courts) out[c.id] = buildSlotMap(rawData.value, c.id)
+  return out
+})
 
 async function fetchDay(date) {
-  selected.value  = date
-  loading.value   = true
-  apiError.value  = null
-  rawData.value   = null
-  grid.value      = {}
-  showRaw.value   = false
+  selected.value = date
+  loading.value  = true
+  apiError.value = null
+  rawData.value  = null
+  showRaw.value  = false
 
   try {
     const ds = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
     const res = await getAvailability(settings.clubId, `${ds}T00:00:00`, settings.lisaToken)
-    rawData.value = res.data
-
     if (!res.ok) {
-      apiError.value = `API fout ${res.status}`
-      grid.value = initGrid()
+      apiError.value = res.status === 401 ? 'Token ongeldig of verlopen — vernieuw het bij Instellingen' : `API fout ${res.status}`
       return
     }
-
-    const { g, ok } = parseResponse(res.data)
-    grid.value = g
-    if (!ok) apiError.value = 'Onbekend API-formaat — ruwe data zichtbaar hieronder'
+    rawData.value = res.data
+    if (!res.data?.timeline_court_availability) apiError.value = 'Onverwacht antwoord van KNLTB — ruwe data hieronder'
   } catch (e) {
     apiError.value = e.message
-    grid.value = initGrid()
   } finally {
     loading.value = false
   }
 }
 
-const slotStatus = (time, courtId) => grid.value[time]?.[courtId] ?? 'unknown'
-const hasData    = computed(() => Object.keys(grid.value).length > 0)
+const slotStatus = (time, courtId) => maps.value[courtId]?.[time]?.status ?? 'unknown'
+const slotLabel  = { available: 'Vrij', booked: 'Bezet', buffer: 'Wisseltijd', short: 'Te kort', later: 'Nog niet boekbaar', closed: 'Dicht', unknown: '?' }
+const slotTone   = status => ({ available: 'ok', booked: 'bad' }[status] ?? 'idle')
+const hasData    = computed(() => !!rawData.value?.timeline_court_availability)
+// Alleen tijden waarop deze baan iets te melden heeft (dicht = overslaan)
+const visibleTimes = computed(() => TIME_SLOTS.filter(t => slotStatus(t, selectedCourt.value) !== 'closed'))
 
 const dateLabel = computed(() => selected.value
   ? selected.value.toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -254,27 +210,27 @@ function bookSlot(time) {
       </div>
 
       <ul v-else class="divide-y divide-line">
-        <li v-for="time in TIME_SLOTS" :key="time" class="flex items-center gap-4 px-6 py-2.5">
+        <li v-for="time in visibleTimes" :key="time" class="flex items-center gap-4 px-6 py-2.5">
           <span class="w-12 flex-shrink-0 font-mono text-xs text-mist tabular">{{ time }}</span>
           <div class="flex-1">
             <span
               class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.12em]"
               :class="{
-                'border-lime/30 bg-lime/10 text-lime':    slotStatus(time, selectedCourt) === 'available',
-                'border-danger/30 bg-danger/10 text-danger': slotStatus(time, selectedCourt) === 'booked',
-                'border-line bg-white/5 text-mist':       slotStatus(time, selectedCourt) === 'unknown',
+                'border-lime/30 bg-lime/10 text-lime':       slotTone(slotStatus(time, selectedCourt)) === 'ok',
+                'border-danger/30 bg-danger/10 text-danger': slotTone(slotStatus(time, selectedCourt)) === 'bad',
+                'border-line bg-white/5 text-mist':          slotTone(slotStatus(time, selectedCourt)) === 'idle',
               }"
             >
               <span class="h-1.5 w-1.5 rounded-full" :class="{
-                'bg-lime':   slotStatus(time, selectedCourt) === 'available',
-                'bg-danger': slotStatus(time, selectedCourt) === 'booked',
-                'bg-mist':   slotStatus(time, selectedCourt) === 'unknown',
+                'bg-lime':   slotTone(slotStatus(time, selectedCourt)) === 'ok',
+                'bg-danger': slotTone(slotStatus(time, selectedCourt)) === 'bad',
+                'bg-mist':   slotTone(slotStatus(time, selectedCourt)) === 'idle',
               }"></span>
-              {{ slotStatus(time, selectedCourt) === 'available' ? 'Vrij' : slotStatus(time, selectedCourt) === 'booked' ? 'Bezet' : '?' }}
+              {{ slotLabel[slotStatus(time, selectedCourt)] }}
             </span>
           </div>
-          <button v-if="slotStatus(time, selectedCourt) === 'available'" @click="bookSlot(time)" class="btn btn-ghost !px-3.5 !py-1.5 text-xs text-lime hover:!bg-lime/10">
-            <Zap class="h-3 w-3" />Boek
+          <button v-if="['available', 'later'].includes(slotStatus(time, selectedCourt))" @click="bookSlot(time)" class="btn btn-ghost !px-3.5 !py-1.5 text-xs text-lime hover:!bg-lime/10">
+            <Zap class="h-3 w-3" />{{ slotStatus(time, selectedCourt) === 'later' ? 'Plan' : 'Boek' }}
           </button>
         </li>
       </ul>

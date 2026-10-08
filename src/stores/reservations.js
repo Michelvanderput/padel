@@ -36,10 +36,10 @@ export const useReservationsStore = defineStore('reservations', () => {
   }
   const scheduleFlush = id => { if (!flushTimers[id]) flushTimers[id] = setTimeout(() => flushLogs(id), FLUSH_MS) }
 
-  async function addReservation({ location, date, timeSlot, duration, courtId, bookingTrigger, memberIds }) {
+  async function addReservation({ location, date, timeSlot, duration, minDuration = 60, courtId, bookingTrigger, memberIds }) {
     const newRes = {
       id: crypto.randomUUID(),
-      location, date, timeSlot, duration, courtId, bookingTrigger, memberIds,
+      location, date, timeSlot, duration, minDuration, courtId, bookingTrigger, memberIds,
       status: 'pending',
       logs: [],
       createdAt: new Date().toISOString()
@@ -59,6 +59,16 @@ export const useReservationsStore = defineStore('reservations', () => {
       headers: JSON_HEADERS,
       body: JSON.stringify({ status, logs: res.logs })
     })
+  }
+
+  // Gegevens uit KNLTB zelf (id, eindtijd, pincode) bij een bevestigde reservering
+  async function setKnltb(id, knltb) {
+    const res = reservations.value.find(r => r.id === id)
+    if (!res) return
+    res.knltb = knltb
+    try {
+      await fetch(`/api/reservations/${id}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ knltb }) })
+    } catch (_) {}
   }
 
   function addLog(id, message) {
@@ -85,5 +95,5 @@ export const useReservationsStore = defineStore('reservations', () => {
     await fetch(`/api/reservations/${id}`, { method: 'DELETE' })
   }
 
-  return { reservations, init, addReservation, updateStatus, addLog, upsertLog, flushLogs, cancelReservation, removeReservation }
+  return { reservations, init, addReservation, updateStatus, setKnltb, addLog, upsertLog, flushLogs, cancelReservation, removeReservation }
 })

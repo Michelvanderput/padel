@@ -1,5 +1,5 @@
-import { createReservation } from '../../server/knltb.js'
-import { tooEarlyInfo, fmtTime, describeFailure, upsertLog } from '../../server/bookingLog.js'
+import { createReservation, validateReservation } from '../../server/knltb.js'
+import { tooEarlyInfo, fmtTime, describeFailure, upsertLog, durationFromValidate } from '../../server/bookingLog.js'
 import { redis, readMeta, readReservations, writeReservations } from '../../server/store.js'
 
 const MEMBERS_KEY  = 'knltb:members'
@@ -79,9 +79,38 @@ async function processReservation(reservation, settings, members, startedAt) {
   }
 
   let attempt = 0
+  let durationChecked = false
+  const wantMin = reservation.minDuration ?? 60
   while (Date.now() - startedAt < BUDGET_MS && Date.now() < giveUpAt) {
     attempt++
     try {
+      // Duurcontrole vóór het boeken (alleen bij 'minimaal 90'): proefboeking geeft de duur die KNLTB zou boeken.
+      if (wantMin > 60 && !durationChecked) {
+        const v = await validateReservation(settings.clubId, {
+          date: reservation.date, timeSlot: reservation.timeSlot, courtId: reservation.courtId, clubMemberIds
+        }, settings.lisaToken)
+        const early = tooEarlyInfo(v.data)
+        if (early) {
+          upsertLog(logs, 'too-early', `⏳ [server] Te vroeg — boekvenster opent om ${fmtTime(early.opensAt)} · poging ${attempt}, wacht…`)
+          await sleep(RETRY_MS)
+          continue
+        }
+        if (v.ok) {
+          const mins = durationFromValidate(v.data)
+          if (mins != null && mins < wantMin) {
+            pushLog(logs, `✗ [server] KNLTB geeft op dit tijdstip maar ${mins} minuten (minimaal ${wantMin} gewenst) — niet geboekt.`)
+            await saveReservation(reservation.id, { status: 'failed', logs })
+            return
+          }
+          durationChecked = true
+          pushLog(logs, `🔍 [server] Duur gecontroleerd: ${mins ?? '?'} minuten (minimaal ${wantMin} gewenst) — boeken…`)
+        } else {
+          pushLog(logs, `→ [server] Poging ${attempt}: ${describeFailure(v.data)}`)
+          await sleep(RETRY_MS)
+          continue
+        }
+      }
+
       const result = await createReservation(settings.clubId, {
         date: reservation.date, timeSlot: reservation.timeSlot,
         courtId: reservation.courtId, clubMemberIds

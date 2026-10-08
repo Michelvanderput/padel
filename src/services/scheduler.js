@@ -1,8 +1,9 @@
 import { useReservationsStore } from '@/stores/reservations'
 import { useSettingsStore } from '@/stores/settings'
 import { useMembersStore } from '@/stores/members'
-import { createReservation, validateReservation, getBookingProducts, getReservations } from './knltb'
-import { tooEarlyInfo, fmtTime, describeFailure } from '../../server/bookingLog.js'
+import { createReservation, validateReservation, getBookingProducts, getReservations, getReservation } from './knltb'
+import { tooEarlyInfo, fmtTime, fmtClock, describeFailure, durationFromValidate } from '../../server/bookingLog.js'
+import { findLiveMatch } from '../../server/knltbMatch.js'
 
 const timers = {}
 const polls  = {}
@@ -13,6 +14,7 @@ const TRIGGER_CHECK_MS  = 500   // fallback check elke 500ms voor browser thrott
 const SYNC_INTERVAL_MS  = 60_000 // elke minuut sync met live KNLTB reserveringen
 
 let syncTimer = null
+const triedFill = new Set()   // gereserveerde reserveringen waarvoor we de KNLTB-gegevens al één keer zochten
 
 /** Initialiseer bij opstarten — plant alle pending reserveringen in */
 export function initScheduler() {
@@ -124,6 +126,7 @@ async function startPolling(id) {
   }
 
   let attempt = 0
+  let durationChecked = false   // alleen relevant als de gebruiker een minimale duur koos
 
   const tryBook = async () => {
     if (attempt >= MAX_ATTEMPTS) {
@@ -149,6 +152,31 @@ async function startPolling(id) {
     }
 
     try {
+      // Duurcontrole vóór het boeken (alleen bij 'minimaal 90'): proefboeking → welke duur geeft KNLTB?
+      const wantMin = res.minDuration ?? 60
+      if (wantMin > 60 && !durationChecked) {
+        const v = await validateReservation(clubId, { date: res.date, timeSlot: res.timeSlot, courtId: res.courtId, clubMemberIds }, token)
+        const early = tooEarlyInfo(v.data)
+        if (early) {
+          reservationsStore.upsertLog(id, 'too-early', `⏳ Te vroeg — boekvenster opent om ${fmtTime(early.opensAt)} · poging ${attempt}, wacht…`)
+          return
+        }
+        if (v.ok) {
+          const mins = durationFromValidate(v.data)
+          if (mins != null && mins < wantMin) {
+            clearInterval(polls[id]); delete polls[id]
+            reservationsStore.addLog(id, `✗ KNLTB geeft op dit tijdstip maar ${mins} minuten (minimaal ${wantMin} gewenst) — niet geboekt.`)
+            reservationsStore.updateStatus(id, 'failed')
+            return
+          }
+          durationChecked = true
+          reservationsStore.addLog(id, `🔍 Duur gecontroleerd: ${mins ?? '?'} minuten (minimaal ${wantMin} gewenst) — boeken…`)
+        } else {
+          reservationsStore.addLog(id, `→ Poging ${attempt}: ${describeFailure(v.data)}`)
+          return
+        }
+      }
+
       const result = await createReservation(clubId, {
         date: res.date,
         timeSlot: res.timeSlot,
@@ -192,7 +220,10 @@ async function syncReservations() {
 
   if (!settingsStore.lisaToken || !settingsStore.clubId) return
 
-  const ours = reservationsStore.reservations.filter(r => r.status === 'pending' || r.status === 'active')
+  // Wachtende/actieve reserveringen controleren we op "staat hij inmiddels bij KNLTB?", en al
+  // gereserveerde zonder KNLTB-gegevens vullen we aan (eindtijd, pincode).
+  const ours = reservationsStore.reservations.filter(r =>
+    r.status === 'pending' || r.status === 'active' || (r.status === 'reserved' && !r.knltb && !triedFill.has(r.id)))
   if (ours.length === 0) return
 
   try {
@@ -200,31 +231,30 @@ async function syncReservations() {
     if (!res.ok) return
 
     const list = res.data?.reservations ?? res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
-    const live = list.filter(r => r.start_at && new Date(r.start_at) >= new Date())
-
-    const ourNames = membersStore.members.map(m => m.name.toLowerCase().trim())
+    // KNLTB noemt het veld start_time (niet start_at) en geeft spelers met hun club-UUID terug.
+    const live = list.filter(r => r.start_time && new Date(r.start_time) >= new Date())
 
     for (const local of ours) {
-      const refUtc = new Date(`${local.date}T12:00:00Z`)
-      const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
-      const offsetMin = Math.round((amsLocal - refUtc) / 60000)
-      const localStartMs = new Date(`${local.date}T${local.timeSlot}:00`).getTime() - offsetMin * 60000
-
-      const match = live.find(r => {
-        if (!r.start_at) return false
-        const sameTime = Math.abs(new Date(r.start_at).getTime() - localStartMs) < 60_000
-        const sameCourt = r.court_id === local.courtId || r.court?.id === local.courtId
-        const hasOurMember = (r.participants ?? r.club_members ?? r.members ?? [])
-          .some(p => {
-            const name = (p.full_name ?? p.name ?? '').toLowerCase().trim()
-            return ourNames.some(our => our === name || name.includes(our.split(' ')[0]) || our.includes(name.split(' ')[0]))
-          })
-        return sameTime && sameCourt && hasOurMember
-      })
+      if (local.status === 'reserved') triedFill.add(local.id)
+      const ourUuids = new Set(local.memberIds
+        .map(mid => membersStore.members.find(m => m.id === mid)?.clubMemberId)
+        .filter(Boolean))
+      const match = findLiveMatch(live, local, ourUuids)
 
       if (match) {
-        reservationsStore.addLog(local.id, `✓ Opgeslagen als gereserveerd via KNLTB sync (ID: ${match.id})`)
-        reservationsStore.updateStatus(local.id, 'reserved')
+        if (local.status !== 'reserved') {
+          reservationsStore.addLog(local.id, `✓ Gevonden bij KNLTB: gereserveerd ${fmtClock(new Date(match.start_time).getTime())}–${fmtClock(new Date(match.end_time).getTime())} (ID: ${match.id})`)
+          reservationsStore.updateStatus(local.id, 'reserved')
+        }
+        // De lijst bevat geen pincode; de aanroep per reservering wel.
+        let pincode = match.pincode ?? null
+        if (!pincode) {
+          try {
+            const one = await getReservation(settingsStore.clubId, match.id, settingsStore.lisaToken)
+            pincode = (one.data?.reservation ?? one.data)?.pincode ?? null
+          } catch (_) {}
+        }
+        reservationsStore.setKnltb(local.id, { id: match.id, endTime: match.end_time, pincode })
       }
     }
   } catch (_) {}

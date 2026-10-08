@@ -1,4 +1,5 @@
 import { logApiCall } from './logger'
+import { playStartMs } from '../../server/knltbMatch.js'
 
 const API = '/api/knltb'
 
@@ -45,13 +46,8 @@ export function getMember(clubId, memberUuid, lisaToken) {
  * start_at      = lokale datetime → automatisch naar UTC geconverteerd.
  */
 export function createReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  // KNLTB negeert blijkbaar de timezone-offset en ziet de kloktijd als UTC.
-  // Stuur dus de UTC-equivalent van de gewenste Amsterdam-speeltijd.
-  const refUtc = new Date(`${date}T12:00:00Z`)
-  const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
-  const offsetMin = Math.round((amsLocal - refUtc) / 60000)
-  const playMs = new Date(`${date}T${timeSlot}:00`).getTime() - offsetMin * 60000
-  const startAt = new Date(playMs).toISOString()
+  // KNLTB verwacht het tijdstip als UTC; wij rekenen de Amsterdamse speeltijd daarnaartoe.
+  const startAt = new Date(playStartMs(date, timeSlot)).toISOString()
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations`, lisaToken, {
     reservation: {
@@ -109,7 +105,7 @@ export function getBuddies(clubId, memberUuid, lisaToken) {
  * terug (bv. "baan al bezet") zonder een echte boeking te proberen.
  */
 export function validateReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  const startAt = new Date(`${date}T${timeSlot}:00`).toISOString()
+  const startAt = new Date(playStartMs(date, timeSlot)).toISOString()
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations/validate`, lisaToken, {
     reservation: {

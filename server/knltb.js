@@ -1,3 +1,5 @@
+import { playStartMs } from './knltbMatch.js'
+
 const API = 'https://api.knltb.club'
 
 // Static app-level Basic auth (decoded: lisax-api-pub-user:6T6hrM0Ne91BSjkvIJxh8MajSnpN1M9u)
@@ -32,16 +34,28 @@ async function request(method, path, lisaToken, body) {
  * Maak een reservering aan (server-side variant van src/services/knltb.js).
  */
 export function createReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
-  // Vercel draait in UTC, KNLTB negeert blijkbaar de timezone-offset en ziet
-  // de kloktijd als UTC. We sturen dus de UTC-equivalent van de gewenste
-  // Amsterdam-speeltijd (bv. 18:30 CEST -> 16:30 UTC).
-  const refUtc = new Date(`${date}T12:00:00Z`)
-  const amsLocal = new Date(refUtc.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' }))
-  const offsetMin = Math.round((amsLocal - refUtc) / 60000)
-  const playMs = new Date(`${date}T${timeSlot}:00`).getTime() - offsetMin * 60000
-  const startAt = new Date(playMs).toISOString()
+  // KNLTB verwacht het tijdstip als UTC; wij rekenen de Amsterdamse speeltijd daarnaartoe.
+  const startAt = new Date(playStartMs(date, timeSlot)).toISOString()
 
   return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations`, lisaToken, {
+    reservation: {
+      club_member_ids: clubMemberIds,
+      court_id:        courtId,
+      start_at:        startAt,
+      guests:          [],
+      products:        [],
+      callback_url:    'knltbGeneral://'
+    }
+  })
+}
+
+/**
+ * Proefboeking zonder echte reservering: antwoordt met start_at/end_at (en dus de duur die
+ * KNLTB op dat tijdstip zou boeken), of met een foutmelding (bv. "te vroeg", "baan bezet").
+ */
+export function validateReservation(clubId, { date, timeSlot, courtId, clubMemberIds }, lisaToken) {
+  const startAt = new Date(playStartMs(date, timeSlot)).toISOString()
+  return request('POST', `/v1/pub/tennis/clubs/${clubId}/reservations/validate`, lisaToken, {
     reservation: {
       club_member_ids: clubMemberIds,
       court_id:        courtId,
