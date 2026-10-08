@@ -2,6 +2,7 @@ import { useReservationsStore } from '@/stores/reservations'
 import { useSettingsStore } from '@/stores/settings'
 import { useMembersStore } from '@/stores/members'
 import { createReservation, validateReservation, getBookingProducts, getReservations } from './knltb'
+import { tooEarlyInfo, fmtTime, describeFailure } from '../../server/bookingLog.js'
 
 const timers = {}
 const polls  = {}
@@ -92,6 +93,7 @@ async function startPolling(id) {
 
   if (!settingsStore.lisaToken) {
     reservationsStore.addLog(id, '✗ Geen x-lisa-auth-token ingesteld — ga naar Instellingen.')
+    reservationsStore.flushLogs(id)
     return
   }
 
@@ -108,11 +110,16 @@ async function startPolling(id) {
     validateReservation(settingsStore.clubId, {
       date: res.date, timeSlot: res.timeSlot, courtId: res.courtId, clubMemberIds: clubMemberIdsPre
     }, settingsStore.lisaToken)
-      .then(validation => reservationsStore.addLog(id, `🔍 Validatie: HTTP ${validation.status} — ${JSON.stringify(validation.data)?.slice(0, 300) ?? 'geen data'}`))
+      .then(validation => {
+        const early = tooEarlyInfo(validation.data)
+        reservationsStore.addLog(id, early
+          ? `🔍 Validatie: boekvenster nog dicht, opent om ${fmtTime(early.opensAt)}`
+          : `🔍 Validatie: HTTP ${validation.status}${validation.ok ? ' ✓' : ' — ' + describeFailure(validation.data)}`)
+      })
       .catch(e => reservationsStore.addLog(id, `🔍 Validatie mislukt (netwerkfout): ${e.message}`))
 
     getBookingProducts(settingsStore.clubId, settingsStore.lisaToken)
-      .then(products => reservationsStore.addLog(id, `📦 Boekingsproducten: HTTP ${products.status} — ${JSON.stringify(products.data)?.slice(0, 300) ?? 'geen data'}`))
+      .then(products => reservationsStore.addLog(id, `📦 Boekingsproducten: HTTP ${products.status} (${products.data?.booking_products?.length ?? 0} gevonden)`))
       .catch(e => reservationsStore.addLog(id, `📦 Boekingsproducten ophalen mislukt: ${e.message}`))
   }
 
@@ -121,8 +128,8 @@ async function startPolling(id) {
   const tryBook = async () => {
     if (attempt >= MAX_ATTEMPTS) {
       clearInterval(polls[id]); delete polls[id]
-      reservationsStore.updateStatus(id, 'failed')
       reservationsStore.addLog(id, `✗ Maximaal ${MAX_ATTEMPTS} pogingen bereikt. Reservering mislukt.`)
+      reservationsStore.updateStatus(id, 'failed')
       return
     }
 
@@ -136,8 +143,8 @@ async function startPolling(id) {
 
     if (clubMemberIds.length < 4) {
       clearInterval(polls[id]); delete polls[id]
-      reservationsStore.updateStatus(id, 'failed')
       reservationsStore.addLog(id, '✗ Niet alle leden hebben een Club Member UUID — controleer de ledenlijst.')
+      reservationsStore.updateStatus(id, 'failed')
       return
     }
 
@@ -151,15 +158,21 @@ async function startPolling(id) {
 
       if (result.ok) {
         clearInterval(polls[id]); delete polls[id]
-        reservationsStore.updateStatus(id, 'reserved')
+        // Eerst de logregels, dán de status: updateStatus slaat de logs mee op.
         reservationsStore.addLog(id, `✓ Reservering geslaagd na ${attempt} poging${attempt !== 1 ? 'en' : ''}!`)
         if (result.data?.id) {
           reservationsStore.addLog(id, `  Reservering ID: ${result.data.id}`)
         }
+        reservationsStore.updateStatus(id, 'reserved')
         syncReservations()
       } else {
-        const msg = JSON.stringify(result.data ?? 'geen details')
-        reservationsStore.addLog(id, `→ Poging ${attempt}: HTTP ${result.status} — ${msg}`)
+        const early = tooEarlyInfo(result.data)
+        if (early) {
+          // Het boekvenster is nog dicht: één meelopende regel i.p.v. een regel per poging.
+          reservationsStore.upsertLog(id, 'too-early', `⏳ Te vroeg — boekvenster opent om ${fmtTime(early.opensAt)} · poging ${attempt}, wacht…`)
+        } else {
+          reservationsStore.addLog(id, `→ Poging ${attempt}: HTTP ${result.status} — ${describeFailure(result.data)}`)
+        }
       }
     } catch (err) {
       reservationsStore.addLog(id, `→ Poging ${attempt} netwerkfout: ${err.message}`)
@@ -210,8 +223,8 @@ async function syncReservations() {
       })
 
       if (match) {
-        reservationsStore.updateStatus(local.id, 'reserved')
         reservationsStore.addLog(local.id, `✓ Opgeslagen als gereserveerd via KNLTB sync (ID: ${match.id})`)
+        reservationsStore.updateStatus(local.id, 'reserved')
       }
     }
   } catch (_) {}

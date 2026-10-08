@@ -1,4 +1,5 @@
 import { createReservation } from '../../server/knltb.js'
+import { tooEarlyInfo, fmtTime, describeFailure, upsertLog } from '../../server/bookingLog.js'
 import { redis, readMeta, readReservations, writeReservations } from '../../server/store.js'
 
 const MEMBERS_KEY  = 'knltb:members'
@@ -93,8 +94,9 @@ async function processReservation(reservation, settings, members, startedAt) {
         return
       }
 
-      const msg = result.data?.message ?? result.data?.error ?? JSON.stringify(result.data)?.slice(0, 200) ?? 'geen details'
-      pushLog(logs, `→ [server] Poging ${attempt}: HTTP ${result.status} — ${msg}`)
+      const early = tooEarlyInfo(result.data)
+      if (early) upsertLog(logs, 'too-early', `⏳ [server] Te vroeg — boekvenster opent om ${fmtTime(early.opensAt)} · poging ${attempt}, wacht…`)
+      else pushLog(logs, `→ [server] Poging ${attempt}: HTTP ${result.status} — ${describeFailure(result.data)}`)
     } catch (err) {
       pushLog(logs, `→ [server] Poging ${attempt} netwerkfout: ${err.message}`)
     }
