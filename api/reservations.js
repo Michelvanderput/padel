@@ -1,7 +1,8 @@
 import { withErrors } from '../server/handler.js'
+import { withAuth } from '../server/auth.js'
 import { redis, RES_KEY, META_KEY, buildMeta, readMeta, readReservations, writeReservations } from '../server/store.js'
 
-export default withErrors(async function handler(req, res) {
+export default withErrors(withAuth(async function handler(req, res) {
   if (req.method === 'GET') {
     // Conditional GET: bij ongewijzigde data lezen we alleen het kleine meta-sleutelje en
     // sturen 304 — de browser levert dan zelf zijn kopie. Dat bespaart de Redis-bandbreedte.
@@ -30,4 +31,4 @@ export default withErrors(async function handler(req, res) {
   }
 
   res.status(405).end()
-})
+}))

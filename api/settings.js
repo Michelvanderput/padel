@@ -1,10 +1,11 @@
 import { Redis } from '@upstash/redis'
 import { withErrors } from '../server/handler.js'
+import { withAuth } from '../server/auth.js'
 
 const redis = Redis.fromEnv()
 const KEY = 'knltb:settings'
 
-export default withErrors(async function handler(req, res) {
+export default withErrors(withAuth(async function handler(req, res) {
   if (req.method === 'GET') {
     const data = await redis.get(KEY) ?? null
     return res.json(data)
@@ -18,4 +19,4 @@ export default withErrors(async function handler(req, res) {
   }
 
   res.status(405).end()
-})
+}))

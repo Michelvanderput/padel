@@ -1,10 +1,11 @@
 import { Redis } from '@upstash/redis'
 import { withErrors } from '../../server/handler.js'
+import { withAuth } from '../../server/auth.js'
 
 const redis = Redis.fromEnv()
 const KEY = 'knltb:members'
 
-export default withErrors(async function handler(req, res) {
+export default withErrors(withAuth(async function handler(req, res) {
   const { id } = req.query
   const members = await redis.get(KEY) ?? []
   const idx = members.findIndex(m => m.id === id)
@@ -24,4 +25,4 @@ export default withErrors(async function handler(req, res) {
   }
 
   res.status(405).end()
-})
+}))

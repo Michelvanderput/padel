@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis'
 import { withErrors } from '../server/handler.js'
+import { withAuth } from '../server/auth.js'
 import { applyRoster } from '../server/roster.js'
 
 const redis = Redis.fromEnv()
@@ -28,7 +29,7 @@ async function mergeRosterOnce(members) {
   }
 }
 
-export default withErrors(async function handler(req, res) {
+export default withErrors(withAuth(async function handler(req, res) {
   if (req.method === 'GET') {
     let members = await redis.get(KEY)
     if (!members || members.length === 0) {
@@ -47,4 +48,4 @@ export default withErrors(async function handler(req, res) {
   }
 
   res.status(405).end()
-})
+}))
