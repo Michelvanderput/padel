@@ -35,7 +35,7 @@ let knltbDebounce = null
 function onKnltbInput() {
   clearTimeout(knltbDebounce)
   knltbError.value = null
-  if (knltbQuery.value.trim().length < 2) { knltbResults.value = []; return }
+  if (knltbQuery.value.trim().length < 2) { knltbSeq++; knltbLoading.value = false; knltbResults.value = []; return }
   knltbDebounce = setTimeout(runKnltbSearch, 350)
 }
 
@@ -51,22 +51,34 @@ function knltbNumber(m) {
   return n ? String(n) : ''
 }
 
+let knltbSeq = 0
+
 async function runKnltbSearch() {
   if (!settings.isConfigured) { knltbError.value = 'Stel eerst een token in via Instellingen.'; return }
+  const query = knltbQuery.value.trim()
+  if (query.length < 2) return
+  // Alleen het antwoord op de laatste zoekopdracht telt; tragere oudere antwoorden negeren.
+  const seq = ++knltbSeq
   knltbLoading.value = true
   knltbError.value = null
   try {
-    const res = await searchMembers(settings.clubId, knltbQuery.value.trim(), settings.lisaToken)
+    const res = await searchMembers(settings.clubId, query, settings.lisaToken)
+    if (seq !== knltbSeq) return
     if (!res.ok) { knltbError.value = `API fout ${res.status}`; knltbResults.value = []; return }
     knltbResults.value = knltbList(res.data)
-  } catch (e) { knltbError.value = e.message }
-  finally { knltbLoading.value = false }
+    if (!knltbResults.value.length) knltbError.value = `Geen leden gevonden voor "${query}".`
+  } catch (e) {
+    if (seq === knltbSeq) knltbError.value = e.message
+  } finally {
+    if (seq === knltbSeq) knltbLoading.value = false
+  }
 }
 
 function pickKnltbResult(m) {
   newName.value   = knltbName(m)
   newNumber.value = knltbNumber(m)
   newUuid.value   = m.id ?? m.club_member_id ?? ''
+  knltbSeq++
   knltbQuery.value   = ''
   knltbResults.value = []
 }
@@ -108,21 +120,32 @@ async function linkMember(member) {
 // ── Lijst + zoeken (Flip animeert het herschikken) ─────────────
 const missingUuid = computed(() => store.members.filter(m => !m.clubMemberId).length)
 
+// Accent- en hoofdletterongevoelig; elk woord moet ergens in naam of lidnummer voorkomen,
+// zodat "douven sabien" ook "Sabien Douven" vindt.
+const fold = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
 function matches(m) {
-  const q = searchQuery.value.trim().toLowerCase()
-  return !q || m.name.toLowerCase().includes(q) || (m.memberNumber ?? '').includes(q)
+  const terms = fold(searchQuery.value).split(/\s+/).filter(Boolean)
+  if (!terms.length) return true
+  const haystack = `${fold(m.name)} ${fold(m.memberNumber)}`
+  return terms.every(t => haystack.includes(t))
 }
 const visibleCount = computed(() => store.members.filter(matches).length)
 
 const grid = ref(null)
+let flip = null
 watch(searchQuery, async () => {
   if (prefersReducedMotion() || !grid.value) return
+  // Een lopende Flip eerst afronden, anders blijven kaarten absoluut gepositioneerd hangen.
+  flip?.progress(1).kill()
   const state = Flip.getState(grid.value.querySelectorAll('[data-member]'))
   await nextTick()
-  Flip.from(state, {
+  flip = Flip.from(state, {
     duration: 0.6, ease: 'expo.out', absolute: true, nested: true,
-    onEnter: els => gsap.fromTo(els, { opacity: 0, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.5, ease: 'expo.out' }),
-    onLeave: els => gsap.to(els, { opacity: 0, scale: 0.92, duration: 0.3 }),
+    // autoAlpha i.p.v. opacity: kaarten die de scroll-reveal nog niet hadden gehad staan op visibility:hidden.
+    onEnter: els => gsap.fromTo(els, { autoAlpha: 0, y: 0, scale: 0.92 }, { autoAlpha: 1, y: 0, scale: 1, duration: 0.5, ease: 'expo.out' }),
+    onLeave: els => gsap.to(els, { autoAlpha: 0, scale: 0.92, duration: 0.3 }),
+    onComplete: () => { flip = null },
   })
 })
 
