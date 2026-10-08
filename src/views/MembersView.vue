@@ -39,8 +39,16 @@ function onKnltbInput() {
   knltbDebounce = setTimeout(runKnltbSearch, 350)
 }
 
+// De KNLTB-API geeft { club_members: [{ club_member: {...} }] } terug;
+// oudere/andere vormen blijven ondersteund.
 function knltbList(data) {
-  return data?.members ?? data?.data ?? (Array.isArray(data) ? data : [])
+  const raw = data?.club_members ?? data?.members ?? data?.data ?? (Array.isArray(data) ? data : [])
+  return raw.map(m => m?.club_member ?? m).filter(Boolean)
+}
+
+function knltbNumber(m) {
+  const n = m.federation_membership_number || m.member_number || m.knltb_number || m.club_membership_number
+  return n ? String(n) : ''
 }
 
 async function runKnltbSearch() {
@@ -56,8 +64,8 @@ async function runKnltbSearch() {
 }
 
 function pickKnltbResult(m) {
-  newName.value   = m.full_name ?? [m.first_name, m.last_name].filter(Boolean).join(' ') ?? ''
-  newNumber.value = m.member_number ?? m.knltb_number ?? ''
+  newName.value   = knltbName(m)
+  newNumber.value = knltbNumber(m)
   newUuid.value   = m.id ?? m.club_member_id ?? ''
   knltbQuery.value   = ''
   knltbResults.value = []
@@ -67,7 +75,10 @@ function pickKnltbResult(m) {
 const linkingId  = ref(null)
 const linkErrors = ref({})
 
-const knltbName = m => m.full_name ?? [m.first_name, m.last_name].filter(Boolean).join(' ')
+function knltbName(m) {
+  return m.full_name ?? [m.first_name, m.middle_name, m.last_name].filter(Boolean).join(' ')
+}
+const normName = s => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 
 async function linkMember(member) {
   linkErrors.value = { ...linkErrors.value, [member.id]: '' }
@@ -80,8 +91,9 @@ async function linkMember(member) {
     const res = await searchMembers(settings.clubId, member.name, settings.lisaToken)
     if (!res.ok) throw new Error(`API fout ${res.status}`)
     const list = knltbList(res.data)
-    const sameNumber = list.find(m => member.memberNumber && String(m.member_number ?? m.knltb_number) === member.memberNumber)
-    const sameName   = list.find(m => knltbName(m).trim().toLowerCase() === member.name.trim().toLowerCase())
+    const sameNumber = list.find(m => member.memberNumber && knltbNumber(m) === String(member.memberNumber).trim())
+    const sameName   = list.find(m => normName(knltbName(m)) === normName(member.name)
+      || normName(`${m.first_name} ${m.last_name}`) === normName(member.name))
     const hit = sameNumber ?? sameName ?? (list.length === 1 ? list[0] : null)
     const uuid = hit?.id ?? hit?.club_member_id
     if (!uuid) throw new Error('Geen duidelijke match — gebruik de zoeker bij "Lid toevoegen" of vul de UUID handmatig in.')
@@ -214,7 +226,7 @@ function deleteMember(id) {
             <li v-for="m in knltbResults" :key="m.id ?? m.club_member_id">
               <button type="button" @click="pickKnltbResult(m)" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-lime/10">
                 <span class="text-sm font-medium text-fog">{{ knltbName(m) }}</span>
-                <span class="font-mono text-xs text-mist">{{ m.member_number ?? m.knltb_number }}</span>
+                <span class="font-mono text-xs text-mist">{{ knltbNumber(m) }}</span>
               </button>
             </li>
           </ul>
