@@ -1,5 +1,5 @@
 import { createReservation, validateReservation } from '../../server/knltb.js'
-import { tooEarlyInfo, fmtTime, describeFailure, upsertLog, durationFromValidate } from '../../server/bookingLog.js'
+import { tooEarlyInfo, fmtTime, describeFailure, upsertLog, durationFromValidate, permanentFailure } from '../../server/bookingLog.js'
 import { redis, readMeta, readReservations, writeReservations } from '../../server/store.js'
 
 const MEMBERS_KEY  = 'knltb:members'
@@ -46,7 +46,11 @@ async function processReservation(reservation, settings, members, startedAt) {
   // Slaap tot EXACT 72 uur voor speeltijd — dat is het moment het KNLTB-venster opengaat
   const openMs  = playMs - 72 * 60 * 60 * 1000
   const delay   = openMs - Date.now()
-  const giveUpAt = openMs + GIVE_UP_MS
+  // Tijdvenster voor pogingen: vanaf het openen van het boekvenster, óf vanaf het aanmaken van de
+  // reservering als dat later was (een reservering voor een slot dat al lang open is mag niet
+  // meteen "opgegeven" worden).
+  const createdMs = new Date(reservation.createdAt).getTime() || 0
+  const giveUpAt = Math.max(openMs, createdMs) + GIVE_UP_MS
 
   if (Date.now() > giveUpAt) {
     pushLog(logs, `✗ [server] Boekvenster langer dan ${GIVE_UP_MS / 60_000} minuten open zonder succes — opgegeven.`)
@@ -105,6 +109,12 @@ async function processReservation(reservation, settings, members, startedAt) {
           durationChecked = true
           pushLog(logs, `🔍 [server] Duur gecontroleerd: ${mins ?? '?'} minuten (minimaal ${wantMin} gewenst) — boeken…`)
         } else {
+          const permanentV = permanentFailure(v.data)
+          if (permanentV) {
+            pushLog(logs, `✗ [server] KNLTB weigert dit definitief: ${permanentV} — niet opnieuw geprobeerd.`)
+            await saveReservation(reservation.id, { status: 'failed', logs })
+            return
+          }
           pushLog(logs, `→ [server] Poging ${attempt}: ${describeFailure(v.data)}`)
           await sleep(RETRY_MS)
           continue
@@ -123,6 +133,12 @@ async function processReservation(reservation, settings, members, startedAt) {
         return
       }
 
+      const permanent = permanentFailure(result.data)
+      if (permanent) {
+        pushLog(logs, `✗ [server] KNLTB weigert dit definitief: ${permanent} — niet opnieuw geprobeerd.`)
+        await saveReservation(reservation.id, { status: 'failed', logs })
+        return
+      }
       const early = tooEarlyInfo(result.data)
       if (early) upsertLog(logs, 'too-early', `⏳ [server] Te vroeg — boekvenster opent om ${fmtTime(early.opensAt)} · poging ${attempt}, wacht…`)
       else pushLog(logs, `→ [server] Poging ${attempt}: HTTP ${result.status} — ${describeFailure(result.data)}`)

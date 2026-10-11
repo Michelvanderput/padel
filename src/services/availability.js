@@ -8,7 +8,7 @@
  * block_type:
  *   available                 — vrij; slots['4players'] = [{ start_time, end_time, available }]
  *   reservation               — bezet (ook 'memberReservation')
- *   courtClosedByOpeningHours — baan dicht
+ *   courtClosedByOpeningHours — baan dicht;  past — voorbij;  tooShort — te kort over
  *   settingMinutesBetweenBooking — wisseltijd tussen twee boekingen (niet boekbaar)
  *   maxHoursBeforeBooking     — ligt nog te ver vooruit; opent 72 uur vóór aanvang
  */
@@ -44,8 +44,18 @@ export function buildSlotMap(data, courtId, now = Date.now()) {
   const entry = (data?.timeline_court_availability ?? []).find(c => c.court_details?.id === courtId)
   if (!entry) return map
 
+  // Sluitingstijden: begin van elk 'courtClosedByOpeningHours'-blok. KNLTB toont die ook voor
+  // dagen ver vooruit, dus we kunnen nu al zien of een slot nog binnen de openingstijden past.
+  const closings = (entry.timeline?.blocks ?? [])
+    .filter(b => b.block_type === 'courtClosedByOpeningHours')
+    .map(b => new Date(b.start).getTime())
+    .sort((a, b) => a - b)
+  const closesAfter = t => closings.find(c => c > t) ?? Infinity
+
+  // Blokken beginnen soms op een onafgeronde minuut (bv. 08:09 = "nu"); we werken op het raster van halve uren.
   const each = (b, fn) => {
-    for (let t = new Date(b.start).getTime(); t < new Date(b.end).getTime(); t += STEP_MS) fn(slotKey(new Date(t).toISOString()), t)
+    const end = new Date(b.end).getTime()
+    for (let t = Math.ceil(new Date(b.start).getTime() / STEP_MS) * STEP_MS; t < end; t += STEP_MS) fn(slotKey(new Date(t).toISOString()), t)
   }
 
   for (const b of entry.timeline?.blocks ?? []) {
@@ -66,7 +76,11 @@ export function buildSlotMap(data, courtId, now = Date.now()) {
         each(b, key => { map[key] = { status: 'booked', durations: [] } })
         break
       case 'courtClosedByOpeningHours':
+      case 'past':   // vandaag al voorbij
         each(b, key => { if (!map[key]) map[key] = { status: 'closed', durations: [] } })
+        break
+      case 'tooShort':   // minder dan 60 minuten over
+        each(b, key => { if (!map[key]) map[key] = { status: 'short', durations: [] } })
         break
       case 'settingMinutesBetweenBooking':
         each(b, key => { if (!map[key]) map[key] = { status: 'buffer', durations: [] } })
@@ -74,7 +88,14 @@ export function buildSlotMap(data, courtId, now = Date.now()) {
       case 'maxHoursBeforeBooking': {
         // Het boekvenster is er nog niet. Het venster is nu + N uur breed (N = 72 bij Ready).
         const hours = Math.round((new Date(b.start).getTime() - now) / 3_600_000)
-        each(b, (key, t) => { if (!map[key]) map[key] = { status: 'later', durations: [], opensAt: t - hours * 3_600_000 } })
+        each(b, (key, t) => {
+          if (map[key]) return
+          const opensAt = t - hours * 3_600_000
+          const closesAt = closesAfter(t)
+          const MIN = 60_000
+          if (t + 60 * MIN > closesAt) map[key] = { status: 'short', durations: [], closesAt }                     // past niet eens 60 min
+          else map[key] = { status: 'later', durations: [], opensAt, closesAt, risk90: t + 90 * MIN > closesAt }  // 90 min past niet
+        })
         break
       }
     }

@@ -22,6 +22,31 @@ export const fmtTime = ms =>
 export const fmtClock = ms =>
   new Date(ms).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' })
 
+/**
+ * Fouten die herhalen niets oplost (de baan is dicht, of dit lid mag vandaag niet meer in piekuren
+ * reserveren). Dan stoppen we meteen i.p.v. 150 keer hetzelfde antwoord te halen.
+ * Geeft een korte reden terug, of null als het (mogelijk) tijdelijk is.
+ */
+export function permanentFailure(data) {
+  const text = describeFailure(data, 400)
+  if (/gesloten/i.test(text)) return text
+  if (/niet meer (kan |mag )?reserveren/i.test(text)) return text
+  return null
+}
+
+/**
+ * Is een boekpoging "verlopen"? We proberen maximaal STALE_MS vanaf het moment dat de poging kon
+ * beginnen: het openen van het boekvenster, óf het aanmaken van de reservering als dat later was
+ * (een reservering voor een slot dat al open is). Daarna geven we op, ook als er geen tabblad of
+ * cron meer actief is — anders blijft een reservering eeuwig 'actief'.
+ */
+export const STALE_MS = 7 * 60_000
+export function isStaleAttempt(res, now = Date.now()) {
+  if (!['pending', 'active'].includes(res.status)) return false
+  const startedAt = Math.max(new Date(res.bookingTrigger).getTime() || 0, new Date(res.createdAt).getTime() || 0)
+  return now - startedAt > STALE_MS
+}
+
 /** Duur in minuten uit een geslaagde proefboeking (validate): end_at − start_at. */
 export function durationFromValidate(data) {
   const ms = new Date(data?.end_at).getTime() - new Date(data?.start_at).getTime()

@@ -142,8 +142,18 @@ function pickSlot(time) {
   syncDuration()
 }
 
+const hhmm = ms => new Date(ms).toLocaleTimeString('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit' })
+
+// Slot waarvan 90 minuten niet meer binnen de openingstijd past: KNLTB boekt meestal 90 → "baan gesloten".
+const selectedRisk = computed(() => {
+  const i = form.value.timeSlot ? slotInfo(form.value.timeSlot) : null
+  if (!i?.risk90) return null
+  return { closes: hhmm(i.closesAt), lastStart: hhmm(i.closesAt - 90 * 60_000) }
+})
+
 function slotTitle(time) {
   const i = slotInfo(time)
+  if (i.status === 'later' && i.risk90) return `Risico: de baan sluit om ${hhmm(i.closesAt)} — 90 minuten past hier niet meer`
   const label = { booked: 'Bezet', short: 'Te kort (minder dan 60 min vrij)', buffer: 'Wisseltijd na een vorige boeking', closed: 'Baan dicht' }[i.status]
   if (label) return label
   if (i.status === 'later') return `Nog niet te boeken — opent ${new Date(i.opensAt).toLocaleString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })}`
@@ -267,6 +277,12 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
                 <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />{{ avError }}
               </div>
 
+              <p v-if="selectedRisk" class="note note-amber mb-4">
+                <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>De baan sluit om <strong>{{ selectedRisk.closes }}</strong>. Meestal boekt KNLTB hier 90 minuten, en dat past niet meer: dan weigert KNLTB met “baan gesloten”.
+                  Kies <strong>{{ selectedRisk.lastStart }}</strong> of eerder, of controleer op de dag zelf of er 60 minuten wordt aangeboden.</span>
+              </p>
+
               <div class="flex flex-wrap gap-2">
                 <template v-for="time in TIME_SLOTS" :key="time">
                   <button
@@ -281,7 +297,8 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
                       'border-lime/25 bg-lime/[0.07] text-lime hover:bg-lime/15': slotInfo(time).status === 'available' && form.timeSlot !== time,
                       'cursor-not-allowed border-line bg-white/[0.02] text-mist/50 line-through': ['booked', 'short'].includes(slotInfo(time).status),
                       'cursor-not-allowed border-dashed border-line bg-white/[0.02] text-mist/50': slotInfo(time).status === 'buffer',
-                      'border-line bg-white/[0.04] text-mist hover:bg-white/10': ['unknown', 'later'].includes(slotInfo(time).status) && form.timeSlot !== time,
+                      'border-line bg-white/[0.04] text-mist hover:bg-white/10': ['unknown', 'later'].includes(slotInfo(time).status) && !slotInfo(time).risk90 && form.timeSlot !== time,
+                      '!border-amber/40 bg-amber/[0.06] text-amber hover:bg-amber/10': slotInfo(time).risk90 && form.timeSlot !== time,
                     }"
                   >
                     <span class="font-mono tabular">{{ time }}</span>

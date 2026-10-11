@@ -2,7 +2,7 @@ import { useReservationsStore } from '@/stores/reservations'
 import { useSettingsStore } from '@/stores/settings'
 import { useMembersStore } from '@/stores/members'
 import { createReservation, validateReservation, getBookingProducts, getReservations, getReservation } from './knltb'
-import { tooEarlyInfo, fmtTime, fmtClock, describeFailure, durationFromValidate } from '../../server/bookingLog.js'
+import { tooEarlyInfo, fmtTime, fmtClock, describeFailure, durationFromValidate, permanentFailure, isStaleAttempt, STALE_MS } from '../../server/bookingLog.js'
 import { findLiveMatch } from '../../server/knltbMatch.js'
 
 const timers = {}
@@ -21,6 +21,7 @@ export function initScheduler() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null }
 
   const store = useReservationsStore()
+  expireStale(store)
   store.reservations
     .filter(r => r.status === 'pending')
     .forEach(r => scheduleReservation(r))
@@ -36,6 +37,21 @@ export function initScheduler() {
         .forEach(r => { if (!timers[r.id]) scheduleReservation(r) })
     }
   })
+}
+
+/**
+ * Reserveringen die al langer dan STALE_MS hadden moeten lukken, gaan op 'mislukt' i.p.v. eeuwig
+ * 'actief' te blijven staan (bv. omdat het tabblad dichtging tijdens het boeken).
+ */
+function expireStale(store) {
+  for (const r of store.reservations) {
+    if (!isStaleAttempt(r)) continue
+    if (timers[r.id]) { clearTimeout(timers[r.id]); delete timers[r.id] }
+    if (timers[r.id + '_fb']) { clearInterval(timers[r.id + '_fb']); delete timers[r.id + '_fb'] }
+    clearInterval(polls[r.id]); delete polls[r.id]
+    store.addLog(r.id, `✗ Niet geboekt: meer dan ${STALE_MS / 60_000} minuten na het boekmoment nog geen succes — opgegeven.`)
+    store.updateStatus(r.id, 'failed')
+  }
 }
 
 /** Plan één reservering in op basis van bookingTrigger */
@@ -128,7 +144,15 @@ async function startPolling(id) {
   let attempt = 0
   let durationChecked = false   // alleen relevant als de gebruiker een minimale duur koos
 
+  const stopPolling = () => { clearInterval(polls[id]); delete polls[id] }
+
   const tryBook = async () => {
+    // Stop zodra de reservering niet meer actief is (bv. de sync vond hem al bij KNLTB, of hij is
+    // geannuleerd) of als het tijdvenster om is.
+    const current = reservationsStore.reservations.find(r => r.id === id)
+    if (!current || !['pending', 'active'].includes(current.status)) { stopPolling(); return }
+    if (isStaleAttempt(current)) { stopPolling(); expireStale(reservationsStore); return }
+
     if (attempt >= MAX_ATTEMPTS) {
       clearInterval(polls[id]); delete polls[id]
       reservationsStore.addLog(id, `✗ Maximaal ${MAX_ATTEMPTS} pogingen bereikt. Reservering mislukt.`)
@@ -172,6 +196,13 @@ async function startPolling(id) {
           durationChecked = true
           reservationsStore.addLog(id, `🔍 Duur gecontroleerd: ${mins ?? '?'} minuten (minimaal ${wantMin} gewenst) — boeken…`)
         } else {
+          const permanentV = permanentFailure(v.data)
+          if (permanentV) {
+            stopPolling()
+            reservationsStore.addLog(id, `✗ KNLTB weigert dit definitief: ${permanentV} — niet opnieuw geprobeerd.`)
+            reservationsStore.updateStatus(id, 'failed')
+            return
+          }
           reservationsStore.addLog(id, `→ Poging ${attempt}: ${describeFailure(v.data)}`)
           return
         }
@@ -194,6 +225,13 @@ async function startPolling(id) {
         reservationsStore.updateStatus(id, 'reserved')
         syncReservations()
       } else {
+        const permanent = permanentFailure(result.data)
+        if (permanent) {
+          stopPolling()
+          reservationsStore.addLog(id, `✗ KNLTB weigert dit definitief: ${permanent} — niet opnieuw geprobeerd.`)
+          reservationsStore.updateStatus(id, 'failed')
+          return
+        }
         const early = tooEarlyInfo(result.data)
         if (early) {
           // Het boekvenster is nog dicht: één meelopende regel i.p.v. een regel per poging.
