@@ -1,6 +1,6 @@
 import { createReservation, validateReservation } from '../../server/knltb.js'
 import { tooEarlyInfo, fmtTime, describeFailure, upsertLog, durationFromValidate, permanentFailure } from '../../server/bookingLog.js'
-import { redis, readMeta, readReservations, writeReservations } from '../../server/store.js'
+import { redis, HEARTBEAT_KEY, readMeta, readReservations, writeReservations } from '../../server/store.js'
 
 const MEMBERS_KEY  = 'knltb:members'
 const SETTINGS_KEY = 'knltb:settings'
@@ -168,6 +168,9 @@ export default async function handler(req, res) {
     }
 
     const startedAt = Date.now()
+
+    // Hartslag: de app toont hiermee of de externe cron daadwerkelijk draait (zie /api/cron-status).
+    await redis.set(HEARTBEAT_KEY, startedAt)
 
     // Snelle uitweg: 1 kleine read (meta). Is er niets actiefs en het eerstvolgende boekmoment
     // nog ver weg, dan hoeft de grote lijst, instellingen en ledenlijst niet gelezen te worden.

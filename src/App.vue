@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterView, RouterLink, useRoute, useRouter } from 'vue-router'
 import { LayoutDashboard, Users, PlusCircle, ListOrdered, Settings } from '@lucide/vue'
 import { initScheduler } from '@/services/scheduler'
@@ -7,6 +7,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { useCourtsStore } from '@/stores/courts'
+import { useCronStore } from '@/stores/cron'
 import { prefersReducedMotion } from '@/lib/motion'
 import { installPageTransition } from '@/lib/pageTransition'
 import { finishIntro } from '@/lib/intro'
@@ -17,6 +18,11 @@ import CursorFollower from '@/components/CursorFollower.vue'
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const cronStore = useCronStore()
+const reservationsStoreForChip = useReservationsStore()
+// Er staat iets te wachten dat de server-cron moet boeken, maar de cron is stil → waarschuwen
+const cronDown = computed(() => cronStore.loaded && !cronStore.running &&
+  reservationsStoreForChip.reservations.some(r => r.status === 'pending' || r.status === 'active'))
 
 const navLinks = [
   { to: '/',             label: 'Home',      icon: LayoutDashboard },
@@ -57,6 +63,7 @@ let removePageTransition = () => {}
 
 // ── Data + scheduler (ongewijzigd) ─────────────────────────────
 let refreshInterval = null
+let cronInterval = null
 let reservationsStoreRef = null
 // Alleen verversen als het tabblad zichtbaar is; bij terugkeren meteen één keer.
 const refreshIfVisible = () => { if (document.visibilityState === 'visible') reservationsStoreRef?.init() }
@@ -82,12 +89,15 @@ onMounted(async () => {
   // Elke 30 s (was 10 s) en alleen zichtbaar: scheelt ~90% Redis-verkeer. Met ETag/304 in de API
   // kost een ongewijzigde poll bovendien bijna niets.
   reservationsStoreRef = reservationsStore
+  cronStore.refresh()
+  cronInterval = setInterval(() => { if (document.visibilityState === 'visible') cronStore.refresh() }, 60_000)
   refreshInterval = setInterval(refreshIfVisible, 30_000)
   document.addEventListener('visibilitychange', refreshIfVisible)
 })
 
 onBeforeUnmount(() => {
   clearInterval(refreshInterval)
+  clearInterval(cronInterval)
   document.removeEventListener('visibilitychange', refreshIfVisible)
   removePageTransition()
   window.removeEventListener('resize', movePill)
@@ -148,10 +158,10 @@ onBeforeUnmount(() => {
         class="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-ink/60 px-3.5 py-2 backdrop-blur-md"
       >
         <span class="relative flex h-2 w-2">
-          <span v-if="settingsStore.isConfigured" class="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-lime"></span>
-          <span class="relative inline-flex h-2 w-2 rounded-full" :class="settingsStore.isConfigured ? 'bg-lime' : 'bg-amber'"></span>
+          <span v-if="settingsStore.isConfigured && !cronDown" class="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-lime"></span>
+          <span class="relative inline-flex h-2 w-2 rounded-full" :class="settingsStore.isConfigured && !cronDown ? 'bg-lime' : 'bg-amber'"></span>
         </span>
-        <span class="eyebrow !text-fog">{{ settingsStore.isConfigured ? 'Live' : 'Token mist' }}</span>
+        <span class="eyebrow !text-fog" :title="cronDown ? 'De server-cron is al meer dan 3 minuten niet langsgekomen: boeken gebeurt alleen zolang dit tabblad open staat.' : ''">{{ !settingsStore.isConfigured ? 'Token mist' : cronDown ? 'Cron uit' : 'Live' }}</span>
       </RouterLink>
     </header>
 

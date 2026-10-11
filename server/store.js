@@ -4,6 +4,7 @@ export const redis = Redis.fromEnv()
 
 export const RES_KEY  = 'knltb:reservations'
 export const META_KEY = 'knltb:reservations:meta'
+export const HEARTBEAT_KEY = 'knltb:cron:last'   // tijdstip (ms) van de laatste cron-tick
 
 const MAX_LOGS     = 40                      // per reservering; oudere regels vallen af
 const KEEP_DONE_MS = 45 * 24 * 60 * 60 * 1000 // afgeronde reserveringen blijven 45 dagen na de speeldatum

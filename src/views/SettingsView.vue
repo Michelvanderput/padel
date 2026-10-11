@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { Key, Hash, Check, AlertCircle, Terminal, Trash2, ChevronDown, ChevronUp } from '@lucide/vue'
 import { useSettingsStore } from '@/stores/settings'
 import { apiLog, clearApiLog } from '@/services/logger'
+import { useCronStore } from '@/stores/cron'
+import { onMounted } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useReveal } from '@/composables/useReveal'
 
@@ -10,6 +12,9 @@ const root = ref(null)
 useReveal(root)
 
 const store    = useSettingsStore()
+const cron     = useCronStore()
+onMounted(() => cron.refresh())
+const agoText  = s => s == null ? 'nog nooit' : s < 90 ? `${s} seconden geleden` : s < 5400 ? `${Math.round(s / 60)} minuten geleden` : `${Math.round(s / 3600)} uur geleden`
 const saved    = ref(false)
 const token    = ref(store.lisaToken)
 const clubId   = ref(store.clubId)
@@ -71,6 +76,28 @@ function formatLogTime(iso) {
           <textarea id="token" v-model="token" rows="3" placeholder="pRBYZW5NuaF9GXaxwHxmXA==" class="input resize-none font-mono leading-relaxed"></textarea>
           <p class="mt-2 text-xs text-mist">Tokens verlopen — pas bij zodra de app niet meer boekt.</p>
         </div>
+      </section>
+
+      <!-- Server-cron -->
+      <section data-reveal class="panel space-y-3 p-6 sm:p-8" aria-labelledby="cron-title">
+        <div class="flex items-center gap-3">
+          <Terminal class="h-4 w-4 text-lime" />
+          <h2 id="cron-title" class="display text-2xl text-fog">Server-cron</h2>
+          <span
+            class="ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[11px] uppercase tracking-[0.12em]"
+            :class="cron.running ? 'border-lime/30 bg-lime/10 text-lime' : 'border-amber/30 bg-amber/10 text-amber'"
+          >
+            <span class="h-1.5 w-1.5 rounded-full" :class="cron.running ? 'bg-lime' : 'bg-amber'"></span>
+            {{ cron.running ? 'Draait' : 'Stil' }}
+          </span>
+        </div>
+        <p class="text-sm text-mist">Laatste aanroep: <strong class="text-fog">{{ agoText(cron.agoSec) }}</strong></p>
+        <p v-if="!cron.running" class="note note-amber">
+          <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>De cron roept de app niet elke minuut aan. Zonder cron wordt er alleen geboekt zolang <strong>dit tabblad openstaat</strong>.
+            Controleer in cron-job.org of de job aan staat en geen fouten geeft (die zet jobs na veel mislukte aanroepen zelf uit).</span>
+        </p>
+        <p v-else class="text-xs text-mist">Boeken gebeurt op de server, ook als je tabblad dicht is.</p>
       </section>
 
       <!-- Club ID -->
