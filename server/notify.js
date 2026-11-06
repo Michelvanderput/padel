@@ -5,7 +5,7 @@ const MEMBERS_KEY = 'knltb:members'
 const NOTIFIED_TTL_S = 90 * 24 * 60 * 60 // lang genoeg: een reservering wordt nooit twee keer 'reserved'
 
 /**
- * Stuurt een WhatsApp-bericht naar de groep via Green API zodra een reservering 'reserved' wordt.
+ * Stuurt een WhatsApp-bericht naar de groep via Green API zodra een reservering 'reserved' of 'failed' wordt.
  * Vereist de env-variabelen GREEN_API_INSTANCE, GREEN_API_TOKEN en WHATSAPP_GROUP_ID;
  * zijn die er niet, dan gebeurt er niets. Mag een boeking nooit laten mislukken, dus alle fouten
  * worden afgevangen en alleen gelogd.
@@ -23,6 +23,16 @@ export function describeReservation(reservation, members) {
     .filter(Boolean)
   const duration = Number(reservation.duration) ? ` (${Number(reservation.duration)} min)` : ''
 
+  if (reservation.status === 'failed') {
+    return [
+      'Padelbaan boeking mislukt',
+      `${court}${reservation.location ? `, ${reservation.location}` : ''}`,
+      `${day} om ${reservation.timeSlot}${duration}`,
+      names.length ? `Spelers: ${names.join(', ')}` : null,
+      failureReason(reservation) ? `Reden: ${failureReason(reservation)}` : null,
+    ].filter(Boolean).join('\n')
+  }
+
   return [
     'Padelbaan gereserveerd',
     `${court}${reservation.location ? `, ${reservation.location}` : ''}`,
@@ -31,16 +41,31 @@ export function describeReservation(reservation, members) {
   ].filter(Boolean).join('\n')
 }
 
+// Laatste logregel zonder emoji/"[server]"-label, als korte reden voor in het bericht.
+function failureReason(reservation) {
+  const last = [...(reservation.logs ?? [])].reverse().find(l => l?.message)?.message
+  if (!last) return ''
+  return last
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/\[server\]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .trim()
+    .slice(0, 200)
+}
+
 /**
- * Aanroepen na het wegschrijven van een reservering. Stuurt alleen bij de overgang naar
- * 'reserved' (previousStatus !== 'reserved'), en hooguit één keer per reservering: de
- * atomaire SET NX vangt het geval op dat cron en browser tegelijk 'reserved' zetten.
+ * Aanroepen na het wegschrijven van een reservering. Stuurt bij de overgang naar 'reserved' of
+ * 'failed' (previousStatus !== nieuwe status) hooguit één bericht per reservering en uitkomst: de
+ * atomaire SET NX vangt het geval op dat cron en browser tegelijk dezelfde status zetten.
  */
-export async function notifyIfReserved(reservation, previousStatus) {
-  if (!reservation || reservation.status !== 'reserved' || previousStatus === 'reserved') return
+export async function notifyOutcome(reservation, previousStatus) {
+  const status = reservation?.status
+  if (status !== 'reserved' && status !== 'failed') return
+  if (previousStatus === status) return
   if (!whatsappConfigured()) return
 
-  const key = `knltb:notified:${reservation.id}`
+  const key = `knltb:notified:${reservation.id}:${status}`
   try {
     const first = await redis.set(key, '1', { nx: true, ex: NOTIFIED_TTL_S })
     if (!first) return

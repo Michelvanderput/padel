@@ -1,7 +1,7 @@
 import { createReservation, validateReservation } from '../../server/knltb.js'
 import { tooEarlyInfo, fmtTime, describeFailure, upsertLog, durationFromValidate, permanentFailure } from '../../server/bookingLog.js'
 import { redis, HEARTBEAT_KEY, readMeta, readReservations, writeReservations } from '../../server/store.js'
-import { notifyIfReserved } from '../../server/notify.js'
+import { notifyOutcome } from '../../server/notify.js'
 
 const MEMBERS_KEY  = 'knltb:members'
 const SETTINGS_KEY = 'knltb:settings'
@@ -28,7 +28,7 @@ async function saveReservation(id, patch) {
   const previousStatus = list[idx].status
   Object.assign(list[idx], patch)
   await writeReservations(list)
-  await notifyIfReserved(list[idx], previousStatus)
+  await notifyOutcome(list[idx], previousStatus)
   return list[idx]
 }
 

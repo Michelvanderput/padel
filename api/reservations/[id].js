@@ -1,6 +1,6 @@
 import { withErrors } from '../../server/handler.js'
 import { readReservations, writeReservations } from '../../server/store.js'
-import { notifyIfReserved } from '../../server/notify.js'
+import { notifyOutcome } from '../../server/notify.js'
 
 export default withErrors(async function handler(req, res) {
   const { id } = req.query
@@ -13,7 +13,7 @@ export default withErrors(async function handler(req, res) {
     Object.assign(reservations[idx], req.body)
     const { list } = await writeReservations(reservations)
     const saved = list.find(r => r.id === id) ?? reservations[idx]
-    await notifyIfReserved(saved, previousStatus)
+    await notifyOutcome(saved, previousStatus)
     return res.json(saved)
   }
 
