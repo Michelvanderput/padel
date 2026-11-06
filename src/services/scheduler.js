@@ -1,7 +1,7 @@
 import { useReservationsStore } from '@/stores/reservations'
 import { useSettingsStore } from '@/stores/settings'
 import { useMembersStore } from '@/stores/members'
-import { createReservation, validateReservation, getBookingProducts, getReservations, getReservation } from './knltb'
+import { createReservation, validateReservation, getBookingProducts, getReservations, getReservation, deleteReservation } from './knltb'
 import { tooEarlyInfo, fmtTime, fmtClock, describeFailure, durationFromValidate, permanentFailure, isStaleAttempt, STALE_MS } from '../../server/bookingLog.js'
 import { findLiveMatch } from '../../server/knltbMatch.js'
 
@@ -98,6 +98,50 @@ export function cancelScheduled(id) {
   if (timers[id])        { clearTimeout(timers[id]);         delete timers[id] }
   if (timers[id + '_fb'])  { clearInterval(timers[id + '_fb']); delete timers[id + '_fb'] }
   if (polls[id])         { clearInterval(polls[id]);          delete polls[id] }
+}
+
+/**
+ * Annuleer een geslaagde reservering bij KNLTB zelf (en zet hem daarna op 'cancelled').
+ * Geeft { ok, message } terug; bij een fout blijft de status 'reserved' zodat er niets
+ * verloren gaat. Zonder opgeslagen KNLTB-ID zoeken we de boeking eerst op in de live lijst.
+ */
+export async function cancelBooking(id) {
+  const reservationsStore = useReservationsStore()
+  const settingsStore     = useSettingsStore()
+  const membersStore      = useMembersStore()
+
+  const res = reservationsStore.reservations.find(r => r.id === id)
+  if (!res) return { ok: false, message: 'Reservering niet gevonden.' }
+  if (!settingsStore.isConfigured) return { ok: false, message: 'Stel eerst een token in via Instellingen.' }
+
+  const { clubId, lisaToken } = settingsStore
+  let knltbId = res.knltb?.id
+
+  if (!knltbId) {
+    const list = await getReservations(clubId, lisaToken)
+    if (!list.ok) return { ok: false, message: `KNLTB gaf een fout bij het opzoeken van de boeking (HTTP ${list.status}).` }
+    const rows = list.data?.reservations ?? list.data?.data ?? (Array.isArray(list.data) ? list.data : [])
+    const live = rows.filter(r => r.start_time && new Date(r.start_time) >= new Date())
+    const ourUuids = new Set(res.memberIds
+      .map(mid => membersStore.members.find(m => m.id === mid)?.clubMemberId)
+      .filter(Boolean))
+    knltbId = findLiveMatch(live, res, ourUuids)?.id
+  }
+  if (!knltbId) {
+    return { ok: false, message: 'Deze boeking is niet bij KNLTB teruggevonden. Annuleer hem in de KNLTB-app.' }
+  }
+
+  const result = await deleteReservation(clubId, knltbId, lisaToken)
+  if (!result.ok && result.status !== 404) {
+    return { ok: false, message: `KNLTB wil niet annuleren (HTTP ${result.status}): ${describeFailure(result.data, 160)}` }
+  }
+
+  cancelScheduled(id)
+  reservationsStore.addLog(id, result.ok
+    ? `Geannuleerd bij KNLTB (ID: ${knltbId}).`
+    : `Boeking bestond niet meer bij KNLTB (ID: ${knltbId}); lokaal op geannuleerd gezet.`)
+  await reservationsStore.updateStatus(id, 'cancelled')
+  return { ok: true }
 }
 
 async function startPolling(id) {

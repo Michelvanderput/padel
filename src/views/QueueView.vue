@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { Calendar, Clock, Users, KeyRound, Trash2, Plus, ChevronDown, ChevronUp, AlertTriangle, Ban } from '@lucide/vue'
 import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
-import { cancelScheduled } from '@/services/scheduler'
+import { cancelScheduled, cancelBooking } from '@/services/scheduler'
 import { useCourtsStore } from '@/stores/courts'
 import StatusBadge from '@/components/StatusBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -83,11 +83,29 @@ function toggleLogs(id) {
   expandedLogs.value = new Set(expandedLogs.value)
 }
 
+// Een geslaagde boeking staat bij KNLTB zelf; die annuleren vraagt een echte API-aanroep.
+const canCancelBooked = res => res.status === 'reserved' && new Date(`${res.date}T23:59:59`) >= new Date()
+const cancelling   = ref(null)
+const cancelErrors = ref({})
+
 function confirmCancel(id) { confirmCancelId.value = id }
-function doCancel() {
-  if (!confirmCancelId.value) return
-  cancelScheduled(confirmCancelId.value)
-  reservationsStore.cancelReservation(confirmCancelId.value)
+async function doCancel() {
+  const id = confirmCancelId.value
+  if (!id) return
+  const res = reservationsStore.reservations.find(r => r.id === id)
+  if (res?.status === 'reserved') {
+    cancelling.value = id
+    cancelErrors.value = { ...cancelErrors.value, [id]: '' }
+    try {
+      const result = await cancelBooking(id)
+      if (!result.ok) { cancelErrors.value = { ...cancelErrors.value, [id]: result.message }; return }
+    } finally {
+      cancelling.value = null
+    }
+  } else {
+    cancelScheduled(id)
+    reservationsStore.cancelReservation(id)
+  }
   confirmCancelId.value = null
 }
 
@@ -171,7 +189,7 @@ function doDelete() {
             </div>
 
             <div class="flex flex-shrink-0 flex-col gap-1">
-              <button v-if="['pending', 'active'].includes(res.status)" @click="confirmCancel(res.id)" class="btn-icon hover:!bg-amber/15 hover:!text-amber" aria-label="Annuleren"><Ban class="h-4 w-4" /></button>
+              <button v-if="['pending', 'active'].includes(res.status) || canCancelBooked(res)" @click="confirmCancel(res.id)" class="btn-icon hover:!bg-amber/15 hover:!text-amber" aria-label="Annuleren"><Ban class="h-4 w-4" /></button>
               <button @click="confirmDelete(res.id)" class="btn-icon hover:!bg-danger/15 hover:!text-danger" aria-label="Verwijderen"><Trash2 class="h-4 w-4" /></button>
             </div>
           </div>
@@ -179,11 +197,17 @@ function doDelete() {
           <Transition enter-active-class="transition duration-300 ease-out-expo" enter-from-class="opacity-0 -translate-y-2" enter-to-class="opacity-100 translate-y-0">
             <div v-if="confirmCancelId === res.id" class="note note-amber mt-5 items-center" role="alertdialog" aria-label="Reservering annuleren?">
               <AlertTriangle class="h-4 w-4 flex-shrink-0" />
-              <p class="flex-1 font-medium">Reservering annuleren?</p>
-              <button @click="doCancel" class="btn btn-amber !px-4 !py-1.5 text-xs">Annuleer</button>
-              <button @click="confirmCancelId = null" class="btn btn-ghost !px-4 !py-1.5 text-xs">Nee</button>
+              <p class="flex-1 font-medium">
+                <template v-if="res.status === 'reserved'">Boeking bij KNLTB annuleren? De baan komt vrij en je krijgt niets terug.</template>
+                <template v-else>Reservering annuleren?</template>
+              </p>
+              <button @click="doCancel" :disabled="cancelling === res.id" class="btn btn-amber !px-4 !py-1.5 text-xs">
+                {{ cancelling === res.id ? 'Bezig…' : 'Annuleer' }}
+              </button>
+              <button @click="confirmCancelId = null" :disabled="cancelling === res.id" class="btn btn-ghost !px-4 !py-1.5 text-xs">Nee</button>
             </div>
           </Transition>
+          <p v-if="confirmCancelId === res.id && cancelErrors[res.id]" class="mt-2 text-xs leading-relaxed text-danger" role="alert">{{ cancelErrors[res.id] }}</p>
 
           <Transition enter-active-class="transition duration-300 ease-out-expo" enter-from-class="opacity-0 -translate-y-2" enter-to-class="opacity-100 translate-y-0">
             <div v-if="confirmDeleteId === res.id" class="note note-danger mt-5 items-center" role="alertdialog" aria-label="Definitief verwijderen?">
