@@ -70,11 +70,11 @@ async function checkMembers() {
   const noUuid = members.filter(m => !m?.clubMemberId).map(m => m?.name ?? 'Onbekend lid')
   if (noUuid.length) return `${noUuid.join(', ')} ${noUuid.length > 1 ? 'hebben' : 'heeft'} nog geen club-UUID. Koppel die eerst bij Leden.`
 
-  if (!settingsStore.isConfigured) return ''
-  const res = await validateReservation(settingsStore.clubId, {
+  if (!settings.isConfigured) return ''
+  const res = await validateReservation(settings.clubId, {
     date: form.value.date, timeSlot: form.value.timeSlot, courtId: form.value.courtId,
     clubMemberIds: members.map(m => m.clubMemberId),
-  }, settingsStore.lisaToken)
+  }, settings.lisaToken)
   if (res.ok) return ''
   const text = describeFailure(res.data, 300)
   return /geen lidmaatschap/i.test(text) ? `KNLTB weigert deze boeking: ${text}.` : ''
@@ -87,8 +87,10 @@ async function submit() {
   try {
     submitError.value = await checkMembers()
     if (submitError.value) return
-  } catch (_) {
-    // Controle mislukt (netwerk): niet blokkeren; het boeken zelf controleert het opnieuw.
+  } catch (e) {
+    // Controle mislukt (bv. netwerk): niet blokkeren, het boeken zelf controleert het opnieuw.
+    // Wel zichtbaar loggen, anders blijft een fout in deze controle ongemerkt.
+    console.error('Ledencontrole mislukt:', e)
   } finally {
     submitting.value = false
   }
