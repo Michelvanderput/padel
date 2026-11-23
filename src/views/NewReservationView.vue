@@ -6,7 +6,8 @@ import { useReservationsStore } from '@/stores/reservations'
 import { useMembersStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
 import { scheduleReservation } from '@/services/scheduler'
-import { getAvailability } from '@/services/knltb'
+import { getAvailability, validateReservation } from '@/services/knltb'
+import { describeFailure } from '../../server/bookingLog.js'
 import { buildSlotMap, effectiveDuration, TIME_SLOTS } from '@/services/availability'
 import { useCourtsStore } from '@/stores/courts'
 import { LOCATION } from '@/constants/courts'
@@ -52,14 +53,46 @@ const isValid = computed(() =>
 )
 
 function toggleMember(id) {
+  submitError.value = ''
   const idx = selectedMemberIds.value.indexOf(id)
   if (idx !== -1) selectedMemberIds.value.splice(idx, 1)
   else if (selectedMemberIds.value.length < 4) selectedMemberIds.value.push(id)
 }
 function getMember(id) { return membersStore.members.find(m => m.id === id) }
 
+const submitting   = ref(false)
+const submitError  = ref('')
+
+// Weiger al bij het aanmaken wat KNLTB bij het boeken toch zou weigeren: een lid zonder UUID of zonder
+// lidmaatschap. Andere validatiefouten (bv. "boekvenster nog niet open") laten we door; die lost de tijd op.
+async function checkMembers() {
+  const members = selectedMemberIds.value.map(getMember)
+  const noUuid = members.filter(m => !m?.clubMemberId).map(m => m?.name ?? 'Onbekend lid')
+  if (noUuid.length) return `${noUuid.join(', ')} ${noUuid.length > 1 ? 'hebben' : 'heeft'} nog geen club-UUID. Koppel die eerst bij Leden.`
+
+  if (!settingsStore.isConfigured) return ''
+  const res = await validateReservation(settingsStore.clubId, {
+    date: form.value.date, timeSlot: form.value.timeSlot, courtId: form.value.courtId,
+    clubMemberIds: members.map(m => m.clubMemberId),
+  }, settingsStore.lisaToken)
+  if (res.ok) return ''
+  const text = describeFailure(res.data, 300)
+  return /geen lidmaatschap/i.test(text) ? `KNLTB weigert deze boeking: ${text}.` : ''
+}
+
 async function submit() {
-  if (!isValid.value) return
+  if (!isValid.value || submitting.value) return
+  submitting.value = true
+  submitError.value = ''
+  try {
+    submitError.value = await checkMembers()
+    if (submitError.value) return
+  } catch (_) {
+    // Controle mislukt (netwerk): niet blokkeren; het boeken zelf controleert het opnieuw.
+  } finally {
+    submitting.value = false
+  }
+
   const newRes = await reservationsStore.addReservation({
     location: LOCATION, date: form.value.date, timeSlot: form.value.timeSlot,
     duration: form.value.duration, minDuration: form.value.minDuration, courtId: form.value.courtId,
@@ -465,8 +498,12 @@ if (route.query.date) fetchSlots(new Date(route.query.date + 'T12:00:00'))
                 <template v-if="selectedMemberIds.length < 4">Selecteer nog {{ 4 - selectedMemberIds.length }} lid{{ 4 - selectedMemberIds.length !== 1 ? 'en' : '' }}.</template>
               </span>
             </div>
-            <button @click="submit" :disabled="!isValid" class="btn btn-primary w-full !py-4 text-base">
-              Aan wachtrij toevoegen <ArrowUpRight class="h-4 w-4" />
+            <div v-if="submitError" class="mb-4 flex items-start gap-2 text-sm text-danger" role="alert">
+              <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>{{ submitError }}</span>
+            </div>
+            <button @click="submit" :disabled="!isValid || submitting" class="btn btn-primary w-full !py-4 text-base">
+              {{ submitting ? 'Controleren…' : 'Aan wachtrij toevoegen' }} <ArrowUpRight class="h-4 w-4" />
             </button>
           </div>
         </div>

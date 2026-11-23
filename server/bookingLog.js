@@ -30,6 +30,7 @@ export const fmtClock = ms =>
 export function permanentFailure(data) {
   const text = describeFailure(data, 400)
   if (/gesloten/i.test(text)) return text
+  if (/geen lidmaatschap/i.test(text)) return text   // wordt met opnieuw proberen nooit anders
   if (/niet meer (kan |mag )?reserveren/i.test(text)) return text
   return null
 }
