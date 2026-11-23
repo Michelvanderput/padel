@@ -26,6 +26,8 @@ async function saveReservation(id, patch) {
   const idx = list.findIndex(r => r.id === id)
   if (idx === -1) return null
   const previousStatus = list[idx].status
+  // Tijdens deze tick kan de gebruiker geannuleerd hebben; een lopende tick mag dat niet terugdraaien.
+  if (previousStatus === 'cancelled') return list[idx]
   Object.assign(list[idx], patch)
   await writeReservations(list)
   await notifyOutcome(list[idx], previousStatus)

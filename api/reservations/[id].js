@@ -10,7 +10,11 @@ export default withErrors(async function handler(req, res) {
   if (req.method === 'PATCH') {
     if (idx === -1) return res.status(404).json({ error: 'Not found' })
     const previousStatus = reservations[idx].status
-    Object.assign(reservations[idx], req.body)
+    const patch = { ...req.body }
+    // Een geannuleerde reservering blijft geannuleerd: een tab of cron-tick die nog een oude status
+    // wegschrijft (bv. 'active' of 'pending') mag dat niet terugdraaien. Logs mogen nog wel.
+    if (previousStatus === 'cancelled' && patch.status && patch.status !== 'cancelled') delete patch.status
+    Object.assign(reservations[idx], patch)
     const { list } = await writeReservations(reservations)
     const saved = list.find(r => r.id === id) ?? reservations[idx]
     await notifyOutcome(saved, previousStatus)
