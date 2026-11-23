@@ -1,5 +1,5 @@
 import { withErrors } from '../server/handler.js'
-import { redis, RES_KEY, META_KEY, buildMeta, readMeta, readReservations, writeReservations } from '../server/store.js'
+import { redis, RES_KEY, META_KEY, buildMeta, readMeta, readReservations, mutateReservations } from '../server/store.js'
 
 export default withErrors(async function handler(req, res) {
   if (req.method === 'GET') {
@@ -23,9 +23,9 @@ export default withErrors(async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const reservations = await readReservations()
-    reservations.push(req.body)
-    await writeReservations(reservations)
+    await mutateReservations(list => {
+      if (!list.some(r => r.id === req.body?.id)) list.push(req.body)   // dubbel versturen voegt niet dubbel toe
+    })
     return res.status(201).json(req.body)
   }
 

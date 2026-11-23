@@ -1,9 +1,11 @@
 import { Redis } from '@upstash/redis'
+import { withLock } from './lock.js'
 
 export const redis = Redis.fromEnv()
 
 export const RES_KEY  = 'knltb:reservations'
 export const META_KEY = 'knltb:reservations:meta'
+export const RES_LOCK = 'knltb:reservations:lock'
 export const HEARTBEAT_KEY = 'knltb:cron:last'   // tijdstip (ms) van de laatste cron-tick
 
 const MAX_LOGS     = 40                      // per reservering; oudere regels vallen af
@@ -51,3 +53,20 @@ export async function readReservations() {
 }
 
 export const readMeta = () => redis.get(META_KEY)
+
+/**
+ * Lees-wijzig-schrijf op de reserveringenlijst, met een slot eromheen. Cron, tabbladen en API-routes
+ * schrijven allemaal de héle lijst terug; zonder slot overschrijft de een de wijziging van de ander
+ * (zo kwam een geannuleerde reservering weer terug). Houd de callback kort en doe er geen
+ * netwerkaanroepen of wachttijden in: het slot staat dan voor iedereen vast.
+ *
+ * fn(list) muteert de lijst en geeft { value, write } terug; write: false slaat het wegschrijven over.
+ * Geeft { value, list } terug, met de lijst zoals hij is opgeslagen (na opschonen).
+ */
+export async function mutateReservations(fn) {
+  return withLock(redis, RES_LOCK, async () => {
+    const list = await readReservations()
+    const { value, write = true } = (await fn(list)) ?? {}
+    return { value, list: write ? (await writeReservations(list)).list : list }
+  })
+}

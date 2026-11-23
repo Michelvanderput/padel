@@ -1,6 +1,6 @@
 import { createReservation, validateReservation } from '../../server/knltb.js'
 import { tooEarlyInfo, fmtTime, describeFailure, upsertLog, durationFromValidate, permanentFailure } from '../../server/bookingLog.js'
-import { redis, HEARTBEAT_KEY, readMeta, readReservations, writeReservations } from '../../server/store.js'
+import { redis, HEARTBEAT_KEY, readMeta, readReservations, mutateReservations } from '../../server/store.js'
 import { notifyOutcome } from '../../server/notify.js'
 
 const MEMBERS_KEY  = 'knltb:members'
@@ -22,16 +22,18 @@ const GIVE_UP_MS   = 5 * 60_000
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 async function saveReservation(id, patch) {
-  const list = await readReservations()
-  const idx = list.findIndex(r => r.id === id)
-  if (idx === -1) return null
-  const previousStatus = list[idx].status
-  // Tijdens deze tick kan de gebruiker geannuleerd hebben; een lopende tick mag dat niet terugdraaien.
-  if (previousStatus === 'cancelled') return list[idx]
-  Object.assign(list[idx], patch)
-  await writeReservations(list)
-  await notifyOutcome(list[idx], previousStatus)
-  return list[idx]
+  const { value } = await mutateReservations(list => {
+    const idx = list.findIndex(r => r.id === id)
+    if (idx === -1) return { write: false, value: null }
+    const previousStatus = list[idx].status
+    // Tijdens deze tick kan de gebruiker geannuleerd hebben; een lopende tick mag dat niet terugdraaien.
+    if (previousStatus === 'cancelled') return { write: false, value: { reservation: list[idx], previousStatus } }
+    Object.assign(list[idx], patch)
+    return { value: { reservation: list[idx], previousStatus } }
+  })
+  if (!value) return null
+  await notifyOutcome(value.reservation, value.previousStatus)   // buiten het slot: dit is een netwerkaanroep
+  return value.reservation
 }
 
 function pushLog(logs, message) {
@@ -206,12 +208,11 @@ export default async function handler(req, res) {
         await processReservation(reservation, settings, members ?? [], startedAt)
       } catch (procErr) {
         // Log de fout in de reservering zodat we het in de UI zien
-        const list = await readReservations()
-        const idx = list.findIndex(r => r.id === reservation.id)
-        if (idx !== -1) {
+        await mutateReservations(list => {
+          const idx = list.findIndex(r => r.id === reservation.id)
+          if (idx === -1) return { write: false }
           list[idx].logs = [...(list[idx].logs ?? []), { time: new Date().toISOString(), message: `💥 [server] Crash: ${procErr.message}` }]
-          await writeReservations(list)
-        }
+        })
       }
       processed++
     }
