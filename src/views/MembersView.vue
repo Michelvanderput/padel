@@ -109,7 +109,8 @@ async function linkMember(member) {
     const hit = sameNumber ?? sameName ?? (list.length === 1 ? list[0] : null)
     const uuid = hit?.id ?? hit?.club_member_id
     if (!uuid) throw new Error('Geen duidelijke match — gebruik de zoeker bij "Lid toevoegen" of vul de UUID handmatig in.')
-    await store.updateMember(member.id, { clubMemberId: uuid })
+    const saved = await store.updateMember(member.id, { clubMemberId: uuid })
+    if (!saved) throw new Error('UUID gevonden, maar opslaan mislukte. Probeer het opnieuw.')
   } catch (e) {
     linkErrors.value[member.id] = e.message
   } finally {
@@ -205,6 +206,12 @@ function deleteMember(id) {
         Lid toevoegen
       </button>
     </PageHeader>
+
+    <!-- Een wijziging die de server niet opsloeg -->
+    <div v-if="store.error" class="note note-danger mb-6" role="alert">
+      <AlertCircle class="mt-0.5 h-4 w-4 flex-shrink-0" />
+      <p>{{ store.error }}</p>
+    </div>
 
     <!-- Waarschuwing: leden zonder UUID kunnen niet geboekt worden -->
     <div v-if="missingUuid > 0" data-reveal class="note note-amber mb-6">
