@@ -33,6 +33,16 @@ export function describeReservation(reservation, members) {
     ].filter(Boolean).join('\n')
   }
 
+  if (reservation.status === 'cancelled') {
+    return [
+      'Padelbaan geannuleerd',
+      `${court}${reservation.location ? `, ${reservation.location}` : ''}`,
+      `${day} om ${reservation.timeSlot}${duration}`,
+      names.length ? `Spelers: ${names.join(', ')}` : null,
+      'De baan is weer vrij.',
+    ].filter(Boolean).join('\n')
+  }
+
   return [
     'Padelbaan gereserveerd',
     `${court}${reservation.location ? `, ${reservation.location}` : ''}`,
@@ -55,14 +65,17 @@ function failureReason(reservation) {
 }
 
 /**
- * Aanroepen na het wegschrijven van een reservering. Stuurt bij de overgang naar 'reserved' of
- * 'failed' (previousStatus !== nieuwe status) hooguit één bericht per reservering en uitkomst: de
+ * Aanroepen na het wegschrijven van een reservering. Stuurt bij de overgang naar 'reserved',
+ * 'failed' of (vanuit 'reserved') 'cancelled' hooguit één bericht per reservering en uitkomst: de
  * atomaire SET NX vangt het geval op dat cron en browser tegelijk dezelfde status zetten.
  */
 export async function notifyOutcome(reservation, previousStatus) {
   const status = reservation?.status
-  if (status !== 'reserved' && status !== 'failed') return
+  if (status !== 'reserved' && status !== 'failed' && status !== 'cancelled') return
   if (previousStatus === status) return
+  // Alleen een annulering van een écht geslaagde boeking is nieuws voor de groep; een wachtende of
+  // mislukte reservering die je weggooit is dat niet.
+  if (status === 'cancelled' && previousStatus !== 'reserved') return
   if (!whatsappConfigured()) return
 
   const key = `knltb:notified:${reservation.id}:${status}`
